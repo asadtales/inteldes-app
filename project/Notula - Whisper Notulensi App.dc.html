@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="_ds/modernist-8075452e-7a27-4209-9992-0c3e33b0134e/styles.css">
+<script src="_ds/modernist-8075452e-7a27-4209-9992-0c3e33b0134e/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:#e6e4e3}
+@keyframes wv{from{transform:scaleY(.18)}to{transform:scaleY(1)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.15}}
+@keyframes bar{from{width:4%}to{width:100%}}
+a{color:var(--color-accent)}a:hover{color:var(--color-accent-700)}
+</style>
+</helmet>
+
+<div style="display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start;padding:48px 44px 64px;background:var(--color-bg);font-family:var(--font-body);color:var(--color-text);min-height:100vh;box-sizing:border-box">
+
+  <div style="flex:1 1 320px;min-width:280px;max-width:420px">
+    <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent);margin-bottom:14px">Prototipe mobile · 01</div>
+    <h1 style="font:800 44px/1.02 var(--font-heading);letter-spacing:-.02em;margin:0 0 18px">NOTULA</h1>
+    <div style="height:2px;background:var(--color-divider);margin:0 0 18px"></div>
+    <p style="font-size:14px;line-height:1.6;margin:0 0 20px;max-width:38ch">Rekam rapat, transkrip otomatis dengan Whisper di perangkat, lalu agent AI (Gemini atau Claude) menyusun notulensi terstruktur: ringkasan, keputusan, dan action item ber-PIC.</p>
+
+    <div style="font:700 11px/1 var(--font-heading);letter-spacing:.12em;text-transform:uppercase;margin:0 0 10px">Asumsi</div>
+    <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:26px">
+      <div style="display:flex;gap:10px;font-size:13px;line-height:1.5"><span style="color:var(--color-accent);font-weight:700">01</span><span>Whisper berjalan on-device (large-v3 turbo) — audio tidak keluar dari HP sampai user setuju kirim teks ke agent AI.</span></div>
+      <div style="display:flex;gap:10px;font-size:13px;line-height:1.5"><span style="color:var(--color-accent);font-weight:700">02</span><span>User memakai API key sendiri (BYOK). Provider bisa ditukar per-notulensi.</span></div>
+      <div style="display:flex;gap:10px;font-size:13px;line-height:1.5"><span style="color:var(--color-accent);font-weight:700">03</span><span>Bahasa utama Indonesia, campur istilah Inggris — prompt agent diarahkan untuk mempertahankan istilah asli.</span></div>
+    </div>
+
+    <div style="font:700 11px/1 var(--font-heading);letter-spacing:.12em;text-transform:uppercase;margin:0 0 10px">Coba di prototipe</div>
+    <div style="display:flex;flex-direction:column;gap:0;border-top:2px solid var(--color-divider)">
+      <button onClick="{{ goRecord }}" style="all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:11px 2px;border-bottom:1px solid var(--color-neutral-300);font-size:13px;font-weight:600" style-hover="background:var(--color-accent-100)"><span>Rekam → proses → notulensi</span><span style="color:var(--color-accent)">▸</span></button>
+      <button onClick="{{ goDetail }}" style="all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:11px 2px;border-bottom:1px solid var(--color-neutral-300);font-size:13px;font-weight:600" style-hover="background:var(--color-accent-100)"><span>Transkrip · Notulensi · Tanya AI</span><span style="color:var(--color-accent)">▸</span></button>
+      <button onClick="{{ goSettings }}" style="all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:11px 2px;border-bottom:1px solid var(--color-neutral-300);font-size:13px;font-weight:600" style-hover="background:var(--color-accent-100)"><span>Pengaturan agent & API key</span><span style="color:var(--color-accent)">▸</span></button>
+    </div>
+    <p style="font-size:12px;line-height:1.5;color:var(--color-neutral-700);margin:22px 0 0">Berikutnya: layar import file audio, mode multi-speaker diarization, dan share ke Notion / email. Bilang saja mana yang mau saya lanjutkan.</p>
+  </div>
+
+  <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+
+    <div style="height:100%;display:flex;flex-direction:column;background:var(--color-bg);font-family:var(--font-body);color:var(--color-text);overflow:hidden">
+
+      <!-- ══ BERANDA ══ -->
+      <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:58px 20px 12px;border-bottom:2px solid var(--color-divider)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <div style="font:800 15px/1 var(--font-heading);letter-spacing:.16em">{{ appName }}</div>
+            <button onClick="{{ goSettings }}" style="all:unset;cursor:pointer;width:44px;height:44px;display:flex;align-items:center;justify-content:center;margin-right:-10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line><circle cx="9" cy="6" r="2.4" fill="var(--color-bg)"></circle><circle cx="15" cy="12" r="2.4" fill="var(--color-bg)"></circle><circle cx="8" cy="18" r="2.4" fill="var(--color-bg)"></circle></svg>
+            </button>
+          </div>
+          <h2 style="font:800 34px/1 var(--font-heading);letter-spacing:-.025em;margin:0 0 4px">Rekaman</h2>
+          <div style="font-size:12px;color:var(--color-neutral-700);margin-bottom:14px">{{ countLabel }}</div>
+          <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--color-divider);padding:9px 11px;background:var(--color-neutral-100)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--color-neutral-600)" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.6" y2="16.6"></line></svg>
+            <span style="font-size:13px;color:var(--color-neutral-600)">Cari judul, orang, atau isi transkrip</span>
+          </div>
+        </div>
+
+        <div style="flex:1;overflow:auto">
+          <div style="display:flex;gap:6px;padding:12px 20px;border-bottom:1px solid var(--color-neutral-300);overflow:auto">
+            <sc-for list="{{ filters }}" as="f" hint-placeholder-count="4">
+              <sc-if value="{{ f.on }}">
+                <button onClick="{{ f.pick }}" style="all:unset;cursor:pointer;white-space:nowrap;padding:5px 11px;font:600 11.5px/1.4 var(--font-heading);letter-spacing:.04em;text-transform:uppercase;background:var(--color-accent);color:#fff">{{ f.label }}</button>
+              </sc-if>
+              <sc-if value="{{ f.off }}">
+                <button onClick="{{ f.pick }}" style="all:unset;cursor:pointer;white-space:nowrap;padding:5px 11px;font:600 11.5px/1.4 var(--font-heading);letter-spacing:.04em;text-transform:uppercase;border:1px solid var(--color-divider);color:var(--color-neutral-800)" style-hover="background:var(--color-neutral-200)">{{ f.label }}</button>
+              </sc-if>
+            </sc-for>
+          </div>
+
+          <sc-for list="{{ visibleRecs }}" as="r" hint-placeholder-count="4">
+            <button onClick="{{ r.open }}" style="all:unset;cursor:pointer;display:block;width:100%;box-sizing:border-box;padding:15px 20px;border-bottom:1px solid var(--color-neutral-300)" style-hover="background:var(--color-accent-100)">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px">
+                <div style="font:700 16px/1.25 var(--font-heading);letter-spacing:-.01em">{{ r.title }}</div>
+                <div style="font:600 11px/1 var(--font-heading);color:var(--color-neutral-600);white-space:nowrap">{{ r.dur }}</div>
+              </div>
+              <div style="font-size:12.5px;line-height:1.45;color:var(--color-neutral-700);margin-bottom:9px">{{ r.snippet }}</div>
+              <div style="display:flex;align-items:center;gap:7px">
+                <sc-if value="{{ r.done }}"><span style="font:600 10px/1 var(--font-heading);letter-spacing:.09em;text-transform:uppercase;padding:4px 6px;background:var(--color-neutral-900);color:var(--color-bg)">Notulensi siap</span></sc-if>
+                <sc-if value="{{ r.working }}"><span style="font:600 10px/1 var(--font-heading);letter-spacing:.09em;text-transform:uppercase;padding:4px 6px;background:var(--color-accent);color:#fff;animation:blink 1.4s infinite">Memproses</span></sc-if>
+                <sc-if value="{{ r.raw }}"><span style="font:600 10px/1 var(--font-heading);letter-spacing:.09em;text-transform:uppercase;padding:4px 6px;border:1px solid var(--color-divider);color:var(--color-neutral-700)">Belum diproses</span></sc-if>
+                <span style="font-size:11px;color:var(--color-neutral-600)">{{ r.meta }}</span>
+              </div>
+            </button>
+          </sc-for>
+          <div style="height:12px"></div>
+        </div>
+
+        <div style="padding:12px 20px;border-top:2px solid var(--color-divider);background:var(--color-neutral-100)">
+          <button onClick="{{ goRecord }}" style="all:unset;cursor:pointer;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:10px;padding:15px 16px;background:var(--color-accent);color:#fff;font:800 15px/1 var(--font-heading);letter-spacing:.02em" style-hover="background:var(--color-accent-600)" style-active="background:var(--color-accent-700)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
+            <span>REKAM RAPAT</span>
+            <span style="margin-left:auto;font:600 11px/1 var(--font-heading);opacity:.8">{{ engineLabel }}</span>
+          </button>
+        </div>
+      </sc-if>
+
+      <!-- ══ REKAM ══ -->
+      <sc-if value="{{ isRecord }}">
+        <div style="flex:1;display:flex;flex-direction:column;background:var(--color-neutral-900);color:var(--color-neutral-100);padding-top:54px">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 14px 14px">
+            <button onClick="{{ goHome }}" style="all:unset;cursor:pointer;padding:10px;font:600 12px/1 var(--font-heading);letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-400)">Batal</button>
+            <span style="font:600 10.5px/1 var(--font-heading);letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-400)">● On-device · tanpa upload</span>
+          </div>
+
+          <div style="padding:0 22px">
+            <div style="font:800 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-400);margin-bottom:10px">Sedang merekam</div>
+            <div style="font:800 64px/1 var(--font-heading);letter-spacing:-.04em;font-variant-numeric:tabular-nums">{{ recTime }}</div>
+            <div style="height:2px;background:var(--color-neutral-700);margin:16px 0 0"></div>
+          </div>
+
+          <div style="padding:22px">{{ liveWave }}</div>
+
+          <div style="flex:1;overflow:auto;padding:0 22px">
+            <div style="font:700 10.5px/1 var(--font-heading);letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-500);margin-bottom:10px">Transkrip berjalan</div>
+            <div style="font-size:14px;line-height:1.65;color:var(--color-neutral-300)">{{ livePartial }}<span style="color:var(--color-accent-400);animation:blink 1s infinite">▍</span></div>
+          </div>
+
+          <div style="display:flex;gap:1px;background:var(--color-neutral-700);margin-top:14px">
+            <button onClick="{{ togglePause }}" style="all:unset;cursor:pointer;flex:1;padding:18px 18px 34px;background:var(--color-neutral-900);font:700 13px/1 var(--font-heading);letter-spacing:.06em;text-transform:uppercase;color:var(--color-neutral-100)" style-hover="background:var(--color-neutral-800)">{{ pauseLabel }}</button>
+            <button onClick="{{ stopRec }}" style="all:unset;cursor:pointer;flex:1.4;display:flex;align-items:center;gap:9px;padding:18px 18px 34px;background:var(--color-accent);color:#fff;font:800 13px/1 var(--font-heading);letter-spacing:.06em;text-transform:uppercase" style-hover="background:var(--color-accent-600)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14"></rect></svg>
+              <span>Selesai &amp; proses</span>
+            </button>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══ PROSES ══ -->
+      <sc-if value="{{ isProc }}">
+        <div style="flex:1;display:flex;flex-direction:column;padding-top:58px">
+          <div style="padding:0 20px 18px;border-bottom:2px solid var(--color-divider)">
+            <div style="font:700 11px/1 var(--font-heading);letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent);margin-bottom:10px">Memproses</div>
+            <h2 style="font:800 28px/1.05 var(--font-heading);letter-spacing:-.025em;margin:0 0 6px">Rapat Sprint Review</h2>
+            <div style="font-size:12.5px;color:var(--color-neutral-700)">{{ recTime }} · 4 pembicara terdeteksi</div>
+          </div>
+
+          <div style="height:6px;background:var(--color-neutral-300);position:relative;overflow:hidden">
+            <div style="position:absolute;inset:0 auto 0 0;background:var(--color-accent);animation:bar 7s linear forwards"></div>
+          </div>
+
+          <div style="flex:1;overflow:auto;padding:4px 20px">
+            <sc-for list="{{ steps }}" as="s" hint-placeholder-count="5">
+              <div style="display:flex;gap:13px;padding:16px 0;border-bottom:1px solid var(--color-neutral-300)">
+                <div style="width:22px;flex:none;display:flex;justify-content:center;padding-top:2px">
+                  <sc-if value="{{ s.done }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"></polyline></svg></sc-if>
+                  <sc-if value="{{ s.active }}"><div style="width:11px;height:11px;background:var(--color-accent);animation:blink .9s infinite;margin-top:3px"></div></sc-if>
+                  <sc-if value="{{ s.todo }}"><div style="width:11px;height:11px;border:1.5px solid var(--color-neutral-400);margin-top:3px"></div></sc-if>
+                </div>
+                <div style="flex:1;min-width:0">
+                  <div style="font:700 14.5px/1.3 var(--font-heading);margin-bottom:3px">{{ s.title }}</div>
+                  <div style="font-size:12.5px;line-height:1.5;color:var(--color-neutral-700)">{{ s.desc }}</div>
+                </div>
+                <div style="font:600 11px/1 var(--font-heading);color:var(--color-neutral-600);padding-top:4px;white-space:nowrap">{{ s.time }}</div>
+              </div>
+            </sc-for>
+            <div style="margin-top:18px;padding:14px;background:var(--color-neutral-200);border-left:3px solid var(--color-accent)">
+              <div style="font:700 10.5px/1 var(--font-heading);letter-spacing:.11em;text-transform:uppercase;margin-bottom:6px">Privasi</div>
+              <div style="font-size:12.5px;line-height:1.55">Audio diproses lokal. Hanya teks transkrip yang dikirim ke {{ providerName }} untuk dirangkum.</div>
+            </div>
+          </div>
+
+          <div style="padding:14px 20px 30px;border-top:2px solid var(--color-divider)">
+            <button onClick="{{ goHome }}" style="all:unset;cursor:pointer;display:block;width:100%;box-sizing:border-box;padding:13px 16px;border:1px solid var(--color-divider);font:700 13px/1 var(--font-heading);letter-spacing:.05em;text-transform:uppercase" style-hover="background:var(--color-neutral-200)">Proses di latar belakang</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ══ DETAIL ══ -->
+      <sc-if value="{{ isDetail }}">
+        <div style="padding:54px 0 0;border-bottom:2px solid var(--color-divider);background:var(--color-bg)">
+          <div style="display:flex;align-items:center;gap:4px;padding:2px 12px 6px">
+            <button onClick="{{ goHome }}" style="all:unset;cursor:pointer;width:44px;height:44px;display:flex;align-items:center;justify-content:center">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            </button>
+            <div style="flex:1;min-width:0">
+              <div style="font:700 15.5px/1.2 var(--font-heading);letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ curTitle }}</div>
+              <div style="font-size:11px;color:var(--color-neutral-600)">{{ curMeta }}</div>
+            </div>
+            <button style="all:unset;cursor:pointer;width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--color-accent)">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
+            </button>
+          </div>
+          <div style="display:flex;gap:1px;background:var(--color-divider);border-top:1px solid var(--color-divider)">
+            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+              <sc-if value="{{ t.on }}">
+                <button onClick="{{ t.pick }}" style="all:unset;cursor:pointer;flex:1;padding:11px 12px;background:var(--color-neutral-900);color:var(--color-bg);font:700 11.5px/1 var(--font-heading);letter-spacing:.09em;text-transform:uppercase">{{ t.label }}</button>
+              </sc-if>
+              <sc-if value="{{ t.off }}">
+                <button onClick="{{ t.pick }}" style="all:unset;cursor:pointer;flex:1;padding:11px 12px;background:var(--color-bg);color:var(--color-neutral-700);font:600 11.5px/1 var(--font-heading);letter-spacing:.09em;text-transform:uppercase" style-hover="background:var(--color-neutral-200)">{{ t.label }}</button>
+              </sc-if>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="flex:1;overflow:auto">
+
+          <!-- Notulensi -->
+          <sc-if value="{{ tabNotes }}">
+            <div style="padding:18px 20px 10px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+                <span style="font:700 10px/1 var(--font-heading);letter-spacing:.1em;text-transform:uppercase;padding:5px 7px;background:var(--color-accent);color:#fff">{{ providerName }}</span>
+                <span style="font-size:11px;color:var(--color-neutral-600)">disusun dalam 8 detik · {{ densityLabel }}</span>
+              </div>
+              <div style="font:700 10.5px/1 var(--font-heading);letter-spacing:.13em;text-transform:uppercase;color:var(--color-accent);margin-bottom:8px">Ringkasan</div>
+              <p style="font-size:14px;line-height:1.62;margin:0 0 20px">Tim menutup sprint 24 dengan 18 dari 21 story selesai. Dua blocker utama: integrasi pembayaran menunggu sandbox dari vendor, dan regresi di modul upload. Disepakati sprint 25 fokus pada stabilisasi sebelum menambah fitur baru.</p>
+              <div style="height:2px;background:var(--color-divider);margin-bottom:18px"></div>
+
+              <div style="font:700 10.5px/1 var(--font-heading);letter-spacing:.13em;text-transform:uppercase;color:var(--color-accent);margin-bottom:10px">Keputusan</div>
+              <sc-for list="{{ decisions }}" as="d" hint-placeholder-count="3">
+                <div style="display:flex;gap:12px;padding:11px 0;border-bottom:1px solid var(--color-neutral-300)">
+                  <div style="font:800 13px/1.45 var(--font-heading);color:var(--color-accent);flex:none">{{ d.n }}</div>
+                  <div style="font-size:13.5px;line-height:1.5">{{ d.text }}</div>
+                </div>
+              </sc-for>
+
+              <div style="font:700 10.5px/1 var(--font-heading);letter-spacing:.13em;text-transform:uppercase;color:var(--color-accent);margin:22px 0 10px">Action item</div>
+              <sc-for list="{{ actions }}" as="a" hint-placeholder-count="3">
+                <div style="border:1px solid var(--color-divider);padding:12px 13px;margin-bottom:10px;background:var(--color-neutral-100)">
+                  <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:9px">
+                    <div style="width:16px;height:16px;border:1.5px solid var(--color-neutral-600);flex:none;margin-top:2px"></div>
+                    <div style="font-size:13.5px;line-height:1.45;font-weight:500">{{ a.task }}</div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;padding-left:26px">
+                    <span style="font:700 10px/1 var(--font-heading);letter-spacing:.07em;text-transform:uppercase;padding:4px 6px;background:var(--color-neutral-900);color:var(--color-bg)">{{ a.pic }}</span>
+                    <span style="font-size:11.5px;color:var(--color-neutral-700)">Tenggat {{ a.due }}</span>
+                    <span style="margin-left:auto;font-size:10.5px;color:var(--color-neutral-600)">{{ a.src }}</span>
+                  </div>
+                </div>
+              </sc-for>
+
+              <div style="display:flex;gap:8px;margin:18px 0 6px">
+                <button onClick="{{ regen }}" style="all:unset;cursor:pointer;flex:1;padding:12px 14px;border:1px solid var(--color-divider);font:700 12px/1 var(--font-heading);letter-spacing:.05em;text-transform:uppercase" style-hover="background:var(--color-neutral-200)">Susun ulang</button>
+                <button onClick="{{ swapProvider }}" style="all:unset;cursor:pointer;flex:1;padding:12px 14px;background:var(--color-neutral-900);color:var(--color-bg);font:700 12px/1 var(--font-heading);letter-spacing:.05em;text-transform:uppercase" style-hover="background:var(--color-accent)">Coba {{ otherProvider }}</button>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- Transkrip -->
+          <sc-if value="{{ tabScript }}">
+            <div style="padding:14px 20px 8px;border-bottom:1px solid var(--color-neutral-300);display:flex;align-items:center;gap:12px">
+              <button onClick="{{ togglePlay }}" style="all:unset;cursor:pointer;width:42px;height:42px;flex:none;background:var(--color-accent);color:#fff;display:flex;align-items:center;justify-content:center" style-hover="background:var(--color-accent-600)">
+                <sc-if value="{{ playing }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg></sc-if>
+                <sc-if value="{{ paused }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21"></polygon></svg></sc-if>
+              </button>
+              <div style="flex:1;min-width:0">{{ staticWave }}</div>
+              <div style="font:600 11.5px/1 var(--font-heading);font-variant-numeric:tabular-nums;color:var(--color-neutral-700);white-space:nowrap">{{ playPos }}</div>
+            </div>
+            <sc-for list="{{ segments }}" as="s" hint-placeholder-count="6">
+              <div style="padding:14px 20px;border-bottom:1px solid var(--color-neutral-300)">
+                <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:4px">
+                  <span style="font:700 12.5px/1 var(--font-heading)">{{ s.who }}</span>
+                  <span style="font:600 10.5px/1 var(--font-heading);color:var(--color-accent);font-variant-numeric:tabular-nums">{{ s.t }}</span>
+                </div>
+                <div style="font-size:13.5px;line-height:1.6">{{ s.text }}</div>
+              </div>
+            </sc-for>
+            <div style="padding:16px 20px;font-size:11.5px;color:var(--color-neutral-600)">Whisper large-v3 · akurasi bahasa Indonesia 94% · ketuk paragraf untuk memperbaiki nama pembicara.</div>
+          </sc-if>
+
+          <!-- Tanya AI -->
+          <sc-if value="{{ tabAsk }}">
+            <div style="padding:16px 20px">
+              <sc-for list="{{ chat }}" as="m" hint-placeholder-count="2">
+                <sc-if value="{{ m.isUser }}">
+                  <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+                    <div style="max-width:80%;background:var(--color-neutral-900);color:var(--color-bg);padding:10px 13px;font-size:13.5px;line-height:1.5">{{ m.text }}</div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ m.isAi }}">
+                  <div style="margin-bottom:16px;border-left:3px solid var(--color-accent);padding-left:12px">
+                    <div style="font:700 10px/1 var(--font-heading);letter-spacing:.11em;text-transform:uppercase;color:var(--color-accent);margin-bottom:6px">{{ providerName }}</div>
+                    <div style="font-size:13.5px;line-height:1.6">{{ m.text }}</div>
+                  </div>
+                </sc-if>
+              </sc-for>
+              <sc-if value="{{ thinking }}">
+                <div style="border-left:3px solid var(--color-accent);padding-left:12px;font-size:13px;color:var(--color-neutral-600);animation:blink 1.1s infinite">membaca transkrip…</div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </div>
+
+        <sc-if value="{{ tabAsk }}">
+          <div style="border-top:2px solid var(--color-divider);background:var(--color-neutral-100);padding:10px 14px 30px">
+            <div style="display:flex;gap:6px;overflow:auto;padding-bottom:9px">
+              <sc-for list="{{ prompts }}" as="p" hint-placeholder-count="3">
+                <button onClick="{{ p.send }}" style="all:unset;cursor:pointer;white-space:nowrap;padding:6px 10px;border:1px solid var(--color-divider);font:600 11.5px/1.3 var(--font-body);background:var(--color-bg)" style-hover="background:var(--color-accent-100)">{{ p.label }}</button>
+              </sc-for>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;border:1px solid var(--color-divider);background:var(--color-bg);padding:9px 10px">
+              <span style="flex:1;font-size:13px;color:var(--color-neutral-600)">Tanya apa saja soal rapat ini…</span>
+              <button onClick="{{ sendDefault }}" style="all:unset;cursor:pointer;width:32px;height:32px;background:var(--color-accent);color:#fff;display:flex;align-items:center;justify-content:center" style-hover="background:var(--color-accent-600)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 15 22l-4-9-9-4Z"></path></svg>
+              </button>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ notAsk }}">
+          <div style="height:34px;border-top:2px solid var(--color-divider);background:var(--color-neutral-100)"></div>
+        </sc-if>
+      </sc-if>
+
+      <!-- ══ PENGATURAN ══ -->
+      <sc-if value="{{ isSettings }}">
+        <div style="padding:54px 0 0;border-bottom:2px solid var(--color-divider)">
+          <div style="display:flex;align-items:center;gap:4px;padding:2px 12px 10px">
+            <button onClick="{{ goHome }}" style="all:unset;cursor:pointer;width:44px;height:44px;display:flex;align-items:center;justify-content:center">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            </button>
+            <h2 style="font:800 24px/1 var(--font-heading);letter-spacing:-.02em;margin:0">Pengaturan</h2>
+          </div>
+        </div>
+        <div style="flex:1;overflow:auto;padding:18px 20px 30px">
+          <div style="font:700 10.5px/1 var(--font-heading);letter-spacing:.13em;text-transform:uppercase;color:var(--color-accent);margin-bottom:10px">Agent AI</div>
+          <div style="display:flex;gap:1px;background:var(--color-divider);border:1px solid var(--color-divider);margin-bottom:14px">
+            <sc-for list="{{ providers }}" as="p" hint-placeholder-count="2">
+              <sc-if value="{{ p.on }}">
+                <button onClick="{{ p.pick }}" style="all:unset;cursor:pointer;flex:1;padding:13px 14px;background:var(--color-neutral-900);color:var(--color-bg)">
+                  <div style="font:700 13.5px/1.2 var(--font-heading)">{{ p.name }}</div>
+                  <div style="font-size:11px;opacity:.75;margin-top:2px">{{ p.model }}</div>
+                </button>
+              </sc-if>
+              <sc-if value="{{ p.off }}">
+                <button onClick="{{ p.pick }}" style="all:unset;cursor:pointer;flex:1;padding:13px 14px;background:var(--color-bg)" style-hover="background:var(--color-neutral-200)">
+                  <div style="font:700 13.5px/1.2 var(--font-heading)">{{ p.name }}</div>
+                  <div style="font-size:11px;color:var(--color-neutral-600);margin-top:2px">{{ p.model }}</div>
+                </button>
+              </sc-if>
+            </sc-for>
+          </div>
+
+          <div style="border:1px solid var(--color-divider);padding:12px 13px;margin-bottom:8px;background:var(--color-neutral-100)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
+              <span style="font:700 11px/1 var(--font-heading);letter-spacing:.06em;text-transform:uppercase">API key {{ providerName }}</span>
+              <span style="font:600 10px/1 var(--font-heading);letter-spacing:.08em;text-transform:uppercase;padding:4px 6px;background:var(--color-accent);color:#fff">Terhubung</span>
+            </div>
+            <div style="font:500 13px/1.3 ui-monospace,Menlo,monospace;letter-spacing:.04em;color:var(--color-neutral-700);padding:9px 10px;border:1px solid var(--color-neutral-300);background:var(--color-bg)">{{ maskedKey }}</div>
+            <div style="font-size:11.5px;line-height:1.5;color:var(--color-neutral-700);margin-top:8px">Disimpan di Keychain perangkat. Biaya penggunaan ditagih langsung ke akun {{ providerName }} kamu.</div>
+          </div>
+          <div style="font-size:11.5px;color:var(--color-neutral-600);margin-bottom:22px">Perkiraan biaya: {{ costLabel }} per rapat 60 menit.</div>
+
+          <div style="height:2px;background:var(--color-divider);margin-bottom:18px"></div>
+          <div style="font:700 10.5px/1 var(--font-heading);letter-spacing:.13em;text-transform:uppercase;color:var(--color-accent);margin-bottom:10px">Transkripsi Whisper</div>
+          <div style="display:flex;gap:1px;background:var(--color-divider);border:1px solid var(--color-divider);margin-bottom:18px">
+            <sc-for list="{{ engines }}" as="e" hint-placeholder-count="2">
+              <sc-if value="{{ e.on }}">
+                <button onClick="{{ e.pick }}" style="all:unset;cursor:pointer;flex:1;padding:11px 13px;background:var(--color-accent);color:#fff;font:700 12px/1.3 var(--font-heading)">{{ e.label }}<div style="font:500 10.5px/1.3 var(--font-body);opacity:.85;margin-top:3px">{{ e.note }}</div></button>
+              </sc-if>
+              <sc-if value="{{ e.off }}">
+                <button onClick="{{ e.pick }}" style="all:unset;cursor:pointer;flex:1;padding:11px 13px;background:var(--color-bg);font:700 12px/1.3 var(--font-heading)" style-hover="background:var(--color-neutral-200)">{{ e.label }}<div style="font:500 10.5px/1.3 var(--font-body);color:var(--color-neutral-600);margin-top:3px">{{ e.note }}</div></button>
+              </sc-if>
+            </sc-for>
+          </div>
+
+          <sc-for list="{{ settingRows }}" as="s" hint-placeholder-count="4">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--color-neutral-300)">
+              <div style="min-width:0">
+                <div style="font:700 13.5px/1.25 var(--font-heading)">{{ s.label }}</div>
+                <div style="font-size:11.5px;color:var(--color-neutral-700);margin-top:2px">{{ s.desc }}</div>
+              </div>
+              <div style="font:600 12.5px/1 var(--font-heading);color:var(--color-accent);white-space:nowrap">{{ s.value }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+    </div>
+  </x-import>
+</div>
+</x-dc>
+</body>
+</html>
