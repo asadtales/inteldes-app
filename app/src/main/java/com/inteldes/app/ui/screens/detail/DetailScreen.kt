@@ -19,10 +19,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -76,7 +76,7 @@ fun DetailScreen(
         Column(modifier = Modifier.background(IdColor.Bg)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = IdColor.Text)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali", tint = IdColor.Text)
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -518,7 +518,7 @@ private fun AskTab(
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Filled.Send, contentDescription = "Kirim", tint = IdColor.White, modifier = Modifier.size(15.dp))
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Kirim", tint = IdColor.White, modifier = Modifier.size(15.dp))
                 }
             }
         }

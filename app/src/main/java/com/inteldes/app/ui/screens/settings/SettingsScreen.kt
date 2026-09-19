@@ -17,7 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,7 +50,7 @@ fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack
     LazyColumn(modifier = Modifier.fillMaxSize().background(IdColor.Bg)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 10.dp, top = 6.dp, bottom = 10.dp)) {
-                IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = IdColor.Text) }
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali", tint = IdColor.Text) }
                 Text("Pengaturan", fontWeight = FontWeight.ExtraBold, fontSize = 24.sp)
             }
             HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
