@@ -84,7 +84,7 @@ fun HomeScreen(
                     Text("INTELDES", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, letterSpacing = 1.sp)
                     Spacer(Modifier.width(7.dp))
                     Text(
-                        "DESA SUKAMAJU",
+                        "DESA TALES",
                         color = IdColor.Neutral600,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 9.5.sp,
