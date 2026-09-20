@@ -9,6 +9,11 @@ enum class WhisperEngine { ON_DEVICE, CLOUD }
 
 enum class AiProvider(val label: String) { AUTO("Otomatis (disarankan)"), GEMINI("Gemini 2.5 Pro"), CLAUDE("Claude Sonnet") }
 
+enum class OutputLanguage(val label: String, val promptName: String) {
+    INDONESIA("Indonesia", "Bahasa Indonesia formal"),
+    ENGLISH("English", "formal English"),
+}
+
 enum class QuestionStatus(val label: String) {
     UNANSWERED("Belum terjawab"), PARTIAL("Terjawab sebagian"), ANSWERED("Terjawab");
 }

@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inteldes.app.data.model.AiProvider
+import com.inteldes.app.data.model.OutputLanguage
 import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.ui.components.KickerLabel
 import com.inteldes.app.ui.components.Pill
@@ -65,6 +66,13 @@ fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack
                 ProviderRow("Gemini 2.5 Pro", "Konteks panjang — bagus untuk rapat di atas 90 menit.", state.settings.provider == AiProvider.GEMINI) { vm.setProvider(AiProvider.GEMINI) }
                 Spacer(Modifier.height(8.dp))
                 ProviderRow("Claude Sonnet", "Ringkasan lebih rapi dan konsisten untuk berita acara.", state.settings.provider == AiProvider.CLAUDE) { vm.setProvider(AiProvider.CLAUDE) }
+
+                Spacer(Modifier.height(8.dp))
+                SettingRow(
+                    "Mode hemat token",
+                    "Pakai model AI versi ringan (Gemini Flash / Claude Haiku) — lebih murah, ringkasan sedikit kurang detail",
+                    if (state.settings.economyMode) "Aktif" else "Nonaktif",
+                ) { vm.setEconomyMode(!state.settings.economyMode) }
 
                 Row(
                     modifier = Modifier
@@ -127,15 +135,107 @@ fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack
                     "Nonaktifkan untuk hapus audio otomatis setelah diproses",
                     if (state.settings.keepOriginalAudio) "Aktif" else "Nonaktif",
                 ) { vm.setKeepOriginalAudio(!state.settings.keepOriginalAudio) }
-                SettingRow("Label pembicara", "Cocokkan dengan daftar perangkat desa", "Ketuk di Transkrip", onClick = null)
+                SettingRow(
+                    "Label pembicara",
+                    "Daftar nama perangkat desa untuk dipilih cepat saat labeli pembicara",
+                    if (state.settings.speakerRoster.isEmpty()) "Atur daftar" else "${state.settings.speakerRoster.size} nama",
+                ) { vm.openRosterDialog() }
                 SettingRow("Ekspor otomatis", "Kirim notulensi ke grup WhatsApp desa", "Nonaktif", onClick = null)
                 SettingRow("Sinkron Google Drive", "Folder Arsip Rapat Desa", "Belum diatur", onClick = null)
-                SettingRow("Bahasa keluaran", "Bahasa notulensi dan jawaban Tanya AI", "Indonesia", onClick = null)
+                SettingRow(
+                    "Bahasa keluaran",
+                    "Bahasa notulensi dan jawaban Tanya AI",
+                    state.settings.outputLanguage.label,
+                ) {
+                    val next = if (state.settings.outputLanguage == OutputLanguage.INDONESIA) OutputLanguage.ENGLISH else OutputLanguage.INDONESIA
+                    vm.setOutputLanguage(next)
+                }
 
                 Spacer(Modifier.height(24.dp))
             }
         }
     }
+
+    if (state.rosterDialogOpen) {
+        SpeakerRosterDialog(
+            roster = state.settings.speakerRoster,
+            onAdd = vm::addSpeakerRosterName,
+            onRemove = vm::removeSpeakerRosterName,
+            onDismiss = vm::closeRosterDialog,
+        )
+    }
+}
+
+@Composable
+private fun SpeakerRosterDialog(
+    roster: List<String>,
+    onAdd: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var newName by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Daftar perangkat desa", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    "Nama-nama di sini muncul sebagai pilihan cepat saat memperbaiki label pembicara di Transkrip.",
+                    color = IdColor.Neutral700,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                if (roster.isEmpty()) {
+                    Text("Belum ada nama tersimpan.", color = IdColor.Neutral600, fontSize = 12.sp)
+                } else {
+                    roster.forEach { name ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        ) {
+                            Text(name, fontSize = 13.5.sp, modifier = Modifier.weight(1f))
+                            Text(
+                                "HAPUS",
+                                color = IdColor.Accent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.5.sp,
+                                modifier = Modifier.clickable { onRemove(name) }.padding(6.dp),
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    BasicTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        textStyle = TextStyle(fontSize = 13.sp, color = IdColor.Text),
+                        modifier = Modifier.weight(1f),
+                        decorationBox = { inner ->
+                            Box(modifier = Modifier.fillMaxWidth().background(IdColor.Neutral100).padding(9.dp)) {
+                                if (newName.isEmpty()) Text("Nama perangkat desa baru", color = IdColor.Neutral600, fontSize = 13.sp)
+                                inner()
+                            }
+                        },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "TAMBAH",
+                        color = IdColor.Accent,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        modifier = Modifier.clickable {
+                            if (newName.isNotBlank()) { onAdd(newName); newName = "" }
+                        }.padding(8.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Text("SELESAI", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable(onClick = onDismiss).padding(10.dp))
+        },
+    )
 }
 
 @Composable

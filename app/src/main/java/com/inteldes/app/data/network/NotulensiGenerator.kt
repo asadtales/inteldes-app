@@ -3,6 +3,7 @@ package com.inteldes.app.data.network
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
 import com.inteldes.app.data.model.Notulensi
+import com.inteldes.app.data.model.OutputLanguage
 import com.inteldes.app.data.model.TranscriptSegment
 import com.inteldes.app.data.prefs.SecurePrefs
 
@@ -21,17 +22,17 @@ class NotulensiGenerator(private val securePrefs: SecurePrefs) {
         else -> provider
     }
 
-    private fun clientFor(resolved: AiProvider): Any {
+    private fun clientFor(resolved: AiProvider, economyMode: Boolean): Any {
         return when (resolved) {
             AiProvider.GEMINI -> {
                 val key = securePrefs.geminiApiKey
                     ?: throw ApiException("API key Gemini belum diatur. Buka Pengaturan → Agent AI.")
-                GeminiClient(key)
+                GeminiClient(key, model = if (economyMode) GeminiClient.MODEL_FLASH else GeminiClient.MODEL_PRO)
             }
             AiProvider.CLAUDE -> {
                 val key = securePrefs.claudeApiKey
                     ?: throw ApiException("API key Claude belum diatur. Buka Pengaturan → Agent AI.")
-                ClaudeClient(key)
+                ClaudeClient(key, model = if (economyMode) ClaudeClient.MODEL_HAIKU else ClaudeClient.MODEL_SONNET)
             }
             AiProvider.AUTO -> throw IllegalStateException("resolve() must be called before clientFor()")
         }
@@ -43,11 +44,13 @@ class NotulensiGenerator(private val securePrefs: SecurePrefs) {
         meetingTitle: String,
         segments: List<TranscriptSegment>,
         densityDetailed: Boolean,
+        outputLanguage: OutputLanguage = OutputLanguage.INDONESIA,
+        economyMode: Boolean = false,
     ): Notulensi {
         val resolved = resolve(provider, durationSec)
-        return when (val client = clientFor(resolved)) {
-            is GeminiClient -> client.generateNotulensi(meetingTitle, segments, densityDetailed)
-            is ClaudeClient -> client.generateNotulensi(meetingTitle, segments, densityDetailed)
+        return when (val client = clientFor(resolved, economyMode)) {
+            is GeminiClient -> client.generateNotulensi(meetingTitle, segments, densityDetailed, outputLanguage)
+            is ClaudeClient -> client.generateNotulensi(meetingTitle, segments, densityDetailed, outputLanguage)
             else -> error("unreachable")
         }
     }
@@ -59,11 +62,13 @@ class NotulensiGenerator(private val securePrefs: SecurePrefs) {
         transcript: List<TranscriptSegment>,
         notulensi: Notulensi?,
         history: List<ChatMessage>,
+        outputLanguage: OutputLanguage = OutputLanguage.INDONESIA,
+        economyMode: Boolean = false,
     ): String {
         val resolved = resolve(provider, durationSec)
-        return when (val client = clientFor(resolved)) {
-            is GeminiClient -> client.ask(question, transcript, notulensi, history)
-            is ClaudeClient -> client.ask(question, transcript, notulensi, history)
+        return when (val client = clientFor(resolved, economyMode)) {
+            is GeminiClient -> client.ask(question, transcript, notulensi, history, outputLanguage)
+            is ClaudeClient -> client.ask(question, transcript, notulensi, history, outputLanguage)
             else -> error("unreachable")
         }
     }

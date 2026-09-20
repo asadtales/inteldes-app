@@ -5,6 +5,7 @@ import com.google.gson.JsonObject
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
 import com.inteldes.app.data.model.Notulensi
+import com.inteldes.app.data.model.OutputLanguage
 import com.inteldes.app.data.model.TranscriptSegment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -16,11 +17,22 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * Direct on-device calls to the Gemini API using the village's own BYO API key.
  * Default model per Google's own 404 guidance when gemini-2.5-pro was retired for new users.
  */
-class GeminiClient(private val apiKey: String, private val model: String = "gemini-3.1-pro-preview") {
+class GeminiClient(private val apiKey: String, private val model: String = MODEL_PRO) {
 
-    suspend fun generateNotulensi(meetingTitle: String, segments: List<TranscriptSegment>, densityDetailed: Boolean): Notulensi =
+    companion object {
+        const val MODEL_PRO = "gemini-3.1-pro-preview"
+        /** Cheaper/faster sibling of [MODEL_PRO] — used when "Mode hemat token" is on. */
+        const val MODEL_FLASH = "gemini-3.1-flash-preview"
+    }
+
+    suspend fun generateNotulensi(
+        meetingTitle: String,
+        segments: List<TranscriptSegment>,
+        densityDetailed: Boolean,
+        outputLanguage: OutputLanguage = OutputLanguage.INDONESIA,
+    ): Notulensi =
         withContext(Dispatchers.IO) {
-            val prompt = buildTranscriptPrompt(meetingTitle, segments, densityDetailed)
+            val prompt = buildTranscriptPrompt(meetingTitle, segments, densityDetailed, outputLanguage)
             val body = JsonObject().apply {
                 add(
                     "contents",
@@ -47,10 +59,17 @@ class GeminiClient(private val apiKey: String, private val model: String = "gemi
             json.toDomain(AiProvider.GEMINI)
         }
 
-    suspend fun ask(question: String, transcript: List<TranscriptSegment>, notulensi: Notulensi?, history: List<ChatMessage>): String =
+    suspend fun ask(
+        question: String,
+        transcript: List<TranscriptSegment>,
+        notulensi: Notulensi?,
+        history: List<ChatMessage>,
+        outputLanguage: OutputLanguage = OutputLanguage.INDONESIA,
+    ): String =
         withContext(Dispatchers.IO) {
             val context = buildString {
                 appendLine("Kamu menjawab pertanyaan tentang satu rapat desa, berdasarkan transkrip berikut.")
+                appendLine("Jawab dalam ${outputLanguage.promptName}.")
                 notulensi?.let { appendLine("Ringkasan rapat: ${it.summary}") }
                 appendLine("Transkrip:")
                 appendLine(transcript.joinToString("\n") { "[${formatTimestamp(it.timestampSec)}] ${it.speaker}: ${it.text}" })

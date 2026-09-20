@@ -67,6 +67,8 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
                 meetingTitle = recording.title,
                 segments = transcriptResult.segments,
                 densityDetailed = current.densityDetailed,
+                outputLanguage = current.outputLanguage,
+                economyMode = current.economyMode,
             )
 
             setProgress(workDataOf(KEY_STEP to ProcessingStep.LINK.name))

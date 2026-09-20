@@ -124,6 +124,7 @@ fun DetailScreen(
             state.tab == DetailTab.SCRIPT -> ScriptTab(
                 segments = state.transcript,
                 playback = playback,
+                roster = state.speakerRoster,
                 onTogglePlay = vm::togglePlayback,
                 onRenameSpeaker = vm::renameSpeaker,
                 modifier = Modifier.weight(1f),
@@ -383,6 +384,7 @@ private fun ActionRow(a: ActionItem) {
 private fun ScriptTab(
     segments: List<TranscriptSegment>,
     playback: com.inteldes.app.data.audio.PlaybackState,
+    roster: List<String>,
     onTogglePlay: () -> Unit,
     onRenameSpeaker: (String, String) -> Unit,
     modifier: Modifier = Modifier,
@@ -445,17 +447,35 @@ private fun ScriptTab(
     }
 
     renameTarget?.let { current ->
-        RenameSpeakerDialog(current, onDismiss = { renameTarget = null }, onConfirm = { newName -> onRenameSpeaker(current, newName); renameTarget = null })
+        RenameSpeakerDialog(current, roster, onDismiss = { renameTarget = null }, onConfirm = { newName -> onRenameSpeaker(current, newName); renameTarget = null })
     }
 }
 
 @Composable
-private fun RenameSpeakerDialog(current: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+private fun RenameSpeakerDialog(current: String, roster: List<String>, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var name by remember { mutableStateOf(current) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Ganti nama pembicara") },
         text = {
+            Column {
+            if (roster.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                    roster.forEach { r ->
+                        Text(
+                            r,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (name == r) IdColor.White else IdColor.Neutral800,
+                            modifier = Modifier
+                                .background(if (name == r) IdColor.Accent else IdColor.Neutral200)
+                                .clickable { name = r }
+                                .padding(horizontal = 9.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+            }
             BasicTextField(
                 value = name,
                 onValueChange = { name = it },
@@ -464,6 +484,7 @@ private fun RenameSpeakerDialog(current: String, onDismiss: () -> Unit, onConfir
                     Box(modifier = Modifier.fillMaxWidth().background(IdColor.Neutral100).padding(10.dp)) { inner() }
                 },
             )
+            }
         },
         confirmButton = {
             Text("SIMPAN", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onConfirm(name) }.padding(10.dp))

@@ -31,6 +31,7 @@ data class DetailUiState(
     val thinking: Boolean = false,
     val regenerating: Boolean = false,
     val error: String? = null,
+    val speakerRoster: List<String> = emptyList(),
 )
 
 class DetailViewModel(
@@ -79,14 +80,17 @@ class DetailViewModel(
 
     private val flagsFlow = combine(tab, thinking, regenerating, error) { t, think, regen, err -> DetailFlags(t, think, regen, err) }
 
-    val uiState: StateFlow<DetailUiState> = combine(dataFlow, flagsFlow) { data, flags ->
-        DetailUiState(data.recording, data.notulensi, data.transcript, data.chat, flags.tab, flags.thinking, flags.regenerating, flags.error)
+    val uiState: StateFlow<DetailUiState> = combine(dataFlow, flagsFlow, settingsStore.settings) { data, flags, settings ->
+        DetailUiState(data.recording, data.notulensi, data.transcript, data.chat, flags.tab, flags.thinking, flags.regenerating, flags.error, settings.speakerRoster)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DetailUiState())
 
     fun setTab(value: DetailTab) { tab.value = value }
 
     fun renameSpeaker(oldName: String, newName: String) {
-        viewModelScope.launch { repository.renameSpeaker(recordingId, oldName, newName) }
+        viewModelScope.launch {
+            repository.renameSpeaker(recordingId, oldName, newName)
+            settingsStore.addSpeakerRosterName(newName)
+        }
     }
 
     fun ask(question: String) {
@@ -108,6 +112,8 @@ class DetailViewModel(
                     transcript = transcript,
                     notulensi = notulensi,
                     history = history,
+                    outputLanguage = settings.outputLanguage,
+                    economyMode = settings.economyMode,
                 )
                 repository.addChatMessage(recordingId, isUser = false, text = answer)
             } catch (e: Exception) {
@@ -137,6 +143,8 @@ class DetailViewModel(
                     meetingTitle = recording.title,
                     segments = transcript,
                     densityDetailed = settings.densityDetailed,
+                    outputLanguage = settings.outputLanguage,
+                    economyMode = settings.economyMode,
                 )
                 val resolved = generator.resolve(settings.provider, recording.durationSec)
                 repository.saveNotulensi(recordingId, resolved, notulensi)

@@ -5,6 +5,7 @@ import com.google.gson.JsonObject
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
 import com.inteldes.app.data.model.Notulensi
+import com.inteldes.app.data.model.OutputLanguage
 import com.inteldes.app.data.model.TranscriptSegment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,11 +14,22 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
 /** Direct on-device calls to the Claude Messages API using the village's own BYO API key. */
-class ClaudeClient(private val apiKey: String, private val model: String = "claude-sonnet-5") {
+class ClaudeClient(private val apiKey: String, private val model: String = MODEL_SONNET) {
 
-    suspend fun generateNotulensi(meetingTitle: String, segments: List<TranscriptSegment>, densityDetailed: Boolean): Notulensi =
+    companion object {
+        const val MODEL_SONNET = "claude-sonnet-5"
+        /** Cheaper/faster sibling of [MODEL_SONNET] — used when "Mode hemat token" is on. */
+        const val MODEL_HAIKU = "claude-haiku-4-5-20251001"
+    }
+
+    suspend fun generateNotulensi(
+        meetingTitle: String,
+        segments: List<TranscriptSegment>,
+        densityDetailed: Boolean,
+        outputLanguage: OutputLanguage = OutputLanguage.INDONESIA,
+    ): Notulensi =
         withContext(Dispatchers.IO) {
-            val prompt = buildTranscriptPrompt(meetingTitle, segments, densityDetailed)
+            val prompt = buildTranscriptPrompt(meetingTitle, segments, densityDetailed, outputLanguage)
             val body = JsonObject().apply {
                 addProperty("model", model)
                 addProperty("max_tokens", 4096)
@@ -61,10 +73,17 @@ class ClaudeClient(private val apiKey: String, private val model: String = "clau
             }
         }
 
-    suspend fun ask(question: String, transcript: List<TranscriptSegment>, notulensi: Notulensi?, history: List<ChatMessage>): String =
+    suspend fun ask(
+        question: String,
+        transcript: List<TranscriptSegment>,
+        notulensi: Notulensi?,
+        history: List<ChatMessage>,
+        outputLanguage: OutputLanguage = OutputLanguage.INDONESIA,
+    ): String =
         withContext(Dispatchers.IO) {
             val context = buildString {
                 appendLine("Kamu menjawab pertanyaan tentang satu rapat desa, berdasarkan transkrip berikut.")
+                appendLine("Jawab dalam ${outputLanguage.promptName}.")
                 notulensi?.let { appendLine("Ringkasan rapat: ${it.summary}") }
                 appendLine("Transkrip:")
                 appendLine(transcript.joinToString("\n") { "[${formatTimestamp(it.timestampSec)}] ${it.speaker}: ${it.text}" })

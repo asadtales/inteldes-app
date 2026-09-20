@@ -6,6 +6,7 @@ import com.inteldes.app.data.model.ActionItem
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.Decision
 import com.inteldes.app.data.model.Notulensi
+import com.inteldes.app.data.model.OutputLanguage
 import com.inteldes.app.data.model.Question
 import com.inteldes.app.data.model.QuestionStatus
 import com.inteldes.app.data.model.Topic
@@ -126,7 +127,7 @@ fun NotulensiJson.toDomain(provider: AiProvider): Notulensi = Notulensi(
     actions = actions.map { ActionItem(it.task, it.pic, it.due, formatTimestamp(it.sourceTimestampSec)) },
 )
 
-fun buildTranscriptPrompt(meetingTitle: String, segments: List<TranscriptSegment>, densityDetailed: Boolean): String {
+fun buildTranscriptPrompt(meetingTitle: String, segments: List<TranscriptSegment>, densityDetailed: Boolean, outputLanguage: OutputLanguage = OutputLanguage.INDONESIA): String {
     val transcriptText = segments.joinToString("\n") { "[${formatTimestamp(it.timestampSec)}] ${it.speaker}: ${it.text}" }
     val densityNote = if (densityDetailed) {
         "Buat notulensi bergaya DETAIL: sertakan lebih banyak poin bahasan dan konteks per butir."
@@ -137,7 +138,7 @@ fun buildTranscriptPrompt(meetingTitle: String, segments: List<TranscriptSegment
         Kamu adalah asisten yang menyusun notulensi rapat desa dari transkrip mentah.
         Judul rapat: "$meetingTitle".
         $densityNote
-        Tulis semua isi (summary, judul topik, teks) dalam Bahasa Indonesia formal.
+        Tulis semua isi (summary, judul topik, teks) dalam ${outputLanguage.promptName}, apa pun bahasa transkrip aslinya.
         Kelompokkan hasil menjadi empat blok sesuai skema yang diberikan: poin bahasan (urut waktu),
         keputusan yang disepakati forum, poin pertanyaan yang belum/sebagian terjawab, dan action item
         dengan PIC serta tenggat bila disebutkan dalam transkrip. Jangan mengarang nama PIC atau tenggat
