@@ -15,7 +15,7 @@ class AppViewModelFactory(private val app: IntelDesApp) : ViewModelProvider.Fact
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T = when {
         modelClass.isAssignableFrom(HomeViewModel::class.java) ->
-            HomeViewModel(app.repository) as T
+            HomeViewModel(app, app.repository, app.settingsStore) as T
         modelClass.isAssignableFrom(RecordViewModel::class.java) ->
             RecordViewModel(app, app.audioRecorder, app.repository, app.settingsStore) as T
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->

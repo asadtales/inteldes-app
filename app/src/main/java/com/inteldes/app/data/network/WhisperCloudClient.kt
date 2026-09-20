@@ -22,7 +22,7 @@ data class TranscriptResult(val speakerCount: Int, val segments: List<Transcript
  */
 class WhisperCloudClient(private val apiKey: String) {
 
-    suspend fun transcribe(audioFile: File, languageCode: String = "id"): TranscriptResult =
+    suspend fun transcribe(audioFile: File, mimeType: String = "audio/mp4", languageCode: String = "id"): TranscriptResult =
         withContext(Dispatchers.IO) {
             val url = "https://api.deepgram.com/v1/listen".toHttpUrl()
                 .newBuilder()
@@ -34,7 +34,7 @@ class WhisperCloudClient(private val apiKey: String) {
                 .addQueryParameter("smart_format", "true")
                 .build()
 
-            val body = audioFile.asRequestBody("audio/mp4".toMediaType())
+            val body = audioFile.asRequestBody(mimeType.toMediaType())
             val request = Request.Builder()
                 .url(url)
                 .addHeader("Authorization", "Token $apiKey")

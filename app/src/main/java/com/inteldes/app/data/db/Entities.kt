@@ -19,6 +19,7 @@ data class RecordingEntity(
     val createdAt: Long,
     val durationSec: Int,
     val audioFilePath: String?,
+    val audioMimeType: String = "audio/mp4",
     val status: RecordingStatus,
     val speakerCount: Int,
     val engine: WhisperEngine,

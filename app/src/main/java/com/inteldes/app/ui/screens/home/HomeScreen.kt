@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -28,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,11 +38,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inteldes.app.data.model.Recording
 import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.ui.components.Pill
+import com.inteldes.app.ui.components.RecordingDetailsDialog
 import com.inteldes.app.ui.theme.IdColor
 import com.inteldes.app.ui.util.formatDuration
 import com.inteldes.app.ui.util.formatRelativeDay
@@ -54,9 +59,18 @@ fun HomeScreen(
     onOpenRecording: (String) -> Unit,
     onRecord: () -> Unit,
     onSettings: () -> Unit,
+    onUploadReady: (String) -> Unit,
 ) {
     val vm: HomeViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
+
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { vm.onFilePicked(it) }
+    }
+
+    LaunchedEffect(Unit) {
+        vm.onUploadProcessed.collect { id -> onUploadReady(id) }
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(IdColor.Bg)) {
         Column(
@@ -155,21 +169,53 @@ fun HomeScreen(
 
         Column(modifier = Modifier.background(IdColor.Neutral100).padding(horizontal = 18.dp, vertical = 11.dp)) {
             androidx.compose.material3.HorizontalDivider(thickness = 2.dp, color = IdColor.Divider, modifier = Modifier.padding(bottom = 11.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onRecord)
-                    .background(IdColor.Accent)
-                    .padding(vertical = 15.dp, horizontal = 16.dp),
-            ) {
-                Icon(Icons.Filled.Mic, contentDescription = null, tint = IdColor.White, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(10.dp))
-                Text("REKAM RAPAT", color = IdColor.White, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-                Spacer(Modifier.weight(1f))
-                Text(engineShortLabel, color = IdColor.White.copy(alpha = 0.85f), fontWeight = FontWeight.SemiBold, fontSize = 10.5.sp)
+            if (state.uploadError != null) {
+                Text(state.uploadError!!, color = IdColor.Accent, fontSize = 11.5.sp, modifier = Modifier.padding(bottom = 8.dp))
             }
+            Row {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .weight(1.6f)
+                        .clickable(onClick = onRecord)
+                        .background(IdColor.Accent)
+                        .padding(vertical = 15.dp, horizontal = 16.dp),
+                ) {
+                    Icon(Icons.Filled.Mic, contentDescription = null, tint = IdColor.White, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("REKAM RAPAT", color = IdColor.White, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                }
+                Spacer(Modifier.width(1.dp))
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .hairline(IdColor.Divider)
+                        .clickable(enabled = !state.importing) { filePicker.launch(arrayOf("audio/*")) }
+                        .padding(vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(Icons.Filled.FileUpload, contentDescription = null, tint = IdColor.Text, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        if (state.importing) "MEMBACA…" else "UNGGAH",
+                        color = IdColor.Text,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.5.sp,
+                        letterSpacing = 0.5.sp,
+                    )
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(engineShortLabel, color = IdColor.Neutral600, fontWeight = FontWeight.SemiBold, fontSize = 10.5.sp)
         }
+    }
+
+    state.pendingUpload?.let {
+        RecordingDetailsDialog(
+            dialogTitle = "Beri nama rekaman ini",
+            onDismiss = { vm.cancelPendingUpload() },
+            onConfirm = { title, kind -> vm.confirmUpload(title, kind) },
+        )
     }
 }
 

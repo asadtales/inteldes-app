@@ -53,7 +53,7 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
             setProgress(workDataOf(KEY_STEP to ProcessingStep.TRANSCRIBE.name))
             val whisperKey = app.securePrefs.whisperCloudApiKey
                 ?: throw ApiException("API key transkripsi awan belum diatur. Buka Pengaturan.")
-            val transcriptResult = WhisperCloudClient(whisperKey).transcribe(audioFile)
+            val transcriptResult = WhisperCloudClient(whisperKey).transcribe(audioFile, recording.audioMimeType)
 
             setProgress(workDataOf(KEY_STEP to ProcessingStep.DIARIZE.name))
             repo.saveTranscript(recordingId, transcriptResult.speakerCount, transcriptResult.segments)

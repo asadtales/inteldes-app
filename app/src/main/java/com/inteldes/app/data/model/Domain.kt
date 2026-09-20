@@ -7,6 +7,7 @@ data class Recording(
     val createdAt: Long,
     val durationSec: Int,
     val audioFilePath: String?,
+    val audioMimeType: String,
     val status: RecordingStatus,
     val speakerCount: Int,
     val engine: WhisperEngine,

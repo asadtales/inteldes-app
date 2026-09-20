@@ -76,14 +76,15 @@ class RecordingRepository(private val db: IntelDesDatabase) {
         kind: RecordingKind,
         durationSec: Int,
         audioFilePath: String?,
+        audioMimeType: String = "audio/mp4",
         engine: WhisperEngine,
     ): String {
         val id = UUID.randomUUID().toString()
         db.recordingDao().upsert(
             RecordingEntity(
                 id = id, title = title, kind = kind, createdAt = System.currentTimeMillis(),
-                durationSec = durationSec, audioFilePath = audioFilePath, status = RecordingStatus.RAW,
-                speakerCount = 0, engine = engine,
+                durationSec = durationSec, audioFilePath = audioFilePath, audioMimeType = audioMimeType,
+                status = RecordingStatus.RAW, speakerCount = 0, engine = engine,
             ),
         )
         return id

@@ -35,6 +35,7 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
                 onOpenRecording = { id -> navController.navigate(Routes.Detail.of(id)) },
                 onRecord = { navController.navigate(Routes.Record.route) },
                 onSettings = { navController.navigate(Routes.Settings.route) },
+                onUploadReady = { id -> navController.navigate(Routes.Processing.of(id)) },
             )
         }
 

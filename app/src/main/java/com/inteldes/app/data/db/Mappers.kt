@@ -10,7 +10,7 @@ import com.inteldes.app.data.model.TranscriptSegment
 
 fun RecordingEntity.toDomain() = Recording(
     id = id, title = title, kind = kind, createdAt = createdAt, durationSec = durationSec,
-    audioFilePath = audioFilePath, status = status, speakerCount = speakerCount, engine = engine,
+    audioFilePath = audioFilePath, audioMimeType = audioMimeType, status = status, speakerCount = speakerCount, engine = engine,
     summary = summary, provider = provider, errorMessage = errorMessage,
 )
 

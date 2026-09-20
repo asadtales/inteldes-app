@@ -35,7 +35,7 @@ abstract class IntelDesDatabase : RoomDatabase() {
                     context.applicationContext,
                     IntelDesDatabase::class.java,
                     "inteldes.db",
-                ).build().also { instance = it }
+                ).fallbackToDestructiveMigration(dropAllTables = true).build().also { instance = it }
             }
     }
 }
