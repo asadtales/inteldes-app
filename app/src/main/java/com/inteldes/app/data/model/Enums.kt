@@ -2,13 +2,8 @@ package com.inteldes.app.data.model
 
 enum class RecordingStatus { RAW, WORKING, DONE }
 
-enum class RecordingKind(val label: String) {
-    MUSDES("Musdes"), BPD("BPD"), BUMDES("BUMDes"), WARGA("Warga"), LAINNYA("Lainnya");
-
-    companion object {
-        fun fromLabel(label: String): RecordingKind = entries.firstOrNull { it.label == label } ?: LAINNYA
-    }
-}
+/** Seeded once on first launch; users can add their own categories afterwards. */
+val DEFAULT_CATEGORIES = listOf("Musdes", "BPD", "BUMDes", "Warga")
 
 enum class WhisperEngine { ON_DEVICE, CLOUD }
 

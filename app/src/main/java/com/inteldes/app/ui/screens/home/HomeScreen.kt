@@ -138,7 +138,7 @@ fun HomeScreen(
                 .padding(horizontal = 18.dp, vertical = 11.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            vm.filters.forEach { f ->
+            state.filters.forEach { f ->
                 val on = state.filter == f
                 Box(
                     modifier = Modifier
@@ -213,6 +213,8 @@ fun HomeScreen(
     state.pendingUpload?.let {
         RecordingDetailsDialog(
             dialogTitle = "Beri nama rekaman ini",
+            categories = state.categories,
+            onAddCategory = vm::addCategory,
             onDismiss = { vm.cancelPendingUpload() },
             onConfirm = { title, kind -> vm.confirmUpload(title, kind) },
         )

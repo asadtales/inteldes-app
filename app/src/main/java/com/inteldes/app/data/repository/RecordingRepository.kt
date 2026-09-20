@@ -1,6 +1,7 @@
 package com.inteldes.app.data.repository
 
 import com.inteldes.app.data.db.ActionItemEntity
+import com.inteldes.app.data.db.CategoryEntity
 import com.inteldes.app.data.db.ChatMessageEntity
 import com.inteldes.app.data.db.DecisionEntity
 import com.inteldes.app.data.db.IntelDesDatabase
@@ -11,13 +12,14 @@ import com.inteldes.app.data.db.TranscriptSegmentEntity
 import com.inteldes.app.data.db.toDomain
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
+import com.inteldes.app.data.model.DEFAULT_CATEGORIES
 import com.inteldes.app.data.model.Notulensi
 import com.inteldes.app.data.model.Recording
-import com.inteldes.app.data.model.RecordingKind
 import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.data.model.TranscriptSegment
 import com.inteldes.app.data.model.WhisperEngine
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 
@@ -26,6 +28,25 @@ class RecordingRepository(private val db: IntelDesDatabase) {
 
     fun observeRecordings(): Flow<List<Recording>> =
         db.recordingDao().observeAll().map { list -> list.map { it.toDomain() } }
+
+    fun observeCategories(): Flow<List<String>> =
+        db.categoryDao().observeAll().map { list -> list.map { it.label } }
+
+    /** Idempotent — safe to call on every app start. Inserts are ignored once a label exists. */
+    suspend fun ensureDefaultCategories() {
+        if (db.categoryDao().count() == 0) {
+            db.categoryDao().insertAll(DEFAULT_CATEGORIES.mapIndexed { i, label -> CategoryEntity(label = label, orderIndex = i) })
+        }
+    }
+
+    suspend fun addCategory(label: String): Boolean {
+        val trimmed = label.trim()
+        if (trimmed.isBlank()) return false
+        val existing = db.categoryDao().observeAll().first()
+        if (existing.any { it.label.equals(trimmed, ignoreCase = true) }) return false
+        db.categoryDao().insert(CategoryEntity(label = trimmed, orderIndex = existing.size))
+        return true
+    }
 
     fun observeRecording(id: String): Flow<Recording?> =
         db.recordingDao().observeOne(id).map { it?.toDomain() }
@@ -73,7 +94,7 @@ class RecordingRepository(private val db: IntelDesDatabase) {
 
     suspend fun createRecording(
         title: String,
-        kind: RecordingKind,
+        kind: String,
         durationSec: Int,
         audioFilePath: String?,
         audioMimeType: String = "audio/mp4",

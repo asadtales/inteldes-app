@@ -3,7 +3,7 @@ package com.inteldes.app.data.model
 data class Recording(
     val id: String,
     val title: String,
-    val kind: RecordingKind,
+    val kind: String,
     val createdAt: Long,
     val durationSec: Int,
     val audioFilePath: String?,

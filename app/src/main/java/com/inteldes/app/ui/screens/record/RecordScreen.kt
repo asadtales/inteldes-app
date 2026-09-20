@@ -50,6 +50,7 @@ fun RecordScreen(
 ) {
     val vm: RecordViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
+    val categories by vm.categories.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var hasPermission by remember {
@@ -179,6 +180,8 @@ fun RecordScreen(
 
     if (showSaveDialog) {
         RecordingDetailsDialog(
+            categories = categories,
+            onAddCategory = vm::addCategory,
             onDismiss = { showSaveDialog = false },
             onConfirm = { title, kind ->
                 showSaveDialog = false

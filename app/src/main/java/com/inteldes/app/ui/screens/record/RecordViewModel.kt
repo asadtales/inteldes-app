@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.inteldes.app.data.audio.AudioRecorderManager
 import com.inteldes.app.data.audio.RecorderState
 import com.inteldes.app.data.audio.RecordingService
-import com.inteldes.app.data.model.RecordingKind
 import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.data.prefs.AppSettingsStore
 import com.inteldes.app.data.repository.RecordingRepository
@@ -38,6 +37,9 @@ class RecordViewModel(
     private val doneChannel = Channel<String>(Channel.BUFFERED)
     val onRecordingReady = doneChannel.receiveAsFlow()
 
+    val categories: StateFlow<List<String>> = repository.observeCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     init {
         viewModelScope.launch {
             settingsStore.settings.collect { engine.value = it.defaultEngine }
@@ -49,6 +51,10 @@ class RecordViewModel(
     ) { state, elapsed, ampHistory, eng ->
         RecordUiState(state, elapsed, ampHistory, eng)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RecordUiState())
+
+    fun addCategory(label: String) {
+        viewModelScope.launch { repository.addCategory(label) }
+    }
 
     fun setEngine(value: WhisperEngine) { engine.value = value }
 
@@ -65,7 +71,7 @@ class RecordViewModel(
         }
     }
 
-    fun stopAndProcess(title: String, kind: RecordingKind) {
+    fun stopAndProcess(title: String, kind: String) {
         val (file, duration) = recorder.stop() ?: (null to 0)
         RecordingService.stop(appContext)
         viewModelScope.launch {

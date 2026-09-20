@@ -6,6 +6,10 @@ import com.inteldes.app.data.db.IntelDesDatabase
 import com.inteldes.app.data.prefs.AppSettingsStore
 import com.inteldes.app.data.prefs.SecurePrefs
 import com.inteldes.app.data.repository.RecordingRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /** Simple manual service locator — small enough app that a DI framework is unneeded ceremony. */
 class IntelDesApp : Application() {
@@ -14,4 +18,9 @@ class IntelDesApp : Application() {
     val securePrefs: SecurePrefs by lazy { SecurePrefs(this) }
     val settingsStore: AppSettingsStore by lazy { AppSettingsStore(this) }
     val audioRecorder: AudioRecorderManager by lazy { AudioRecorderManager(this) }
+
+    override fun onCreate() {
+        super.onCreate()
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch { repository.ensureDefaultCategories() }
+    }
 }

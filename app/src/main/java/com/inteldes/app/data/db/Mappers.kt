@@ -8,8 +8,11 @@ import com.inteldes.app.data.model.Recording
 import com.inteldes.app.data.model.Topic
 import com.inteldes.app.data.model.TranscriptSegment
 
+/** Rows written before custom categories existed stored the enum constant name (e.g. "BUMDES"); show the proper label for those. */
+private val LEGACY_KIND_LABELS = mapOf("MUSDES" to "Musdes", "BPD" to "BPD", "BUMDES" to "BUMDes", "WARGA" to "Warga", "LAINNYA" to "Lainnya")
+
 fun RecordingEntity.toDomain() = Recording(
-    id = id, title = title, kind = kind, createdAt = createdAt, durationSec = durationSec,
+    id = id, title = title, kind = LEGACY_KIND_LABELS[kind] ?: kind, createdAt = createdAt, durationSec = durationSec,
     audioFilePath = audioFilePath, audioMimeType = audioMimeType, status = status, speakerCount = speakerCount, engine = engine,
     summary = summary, provider = provider, errorMessage = errorMessage,
 )

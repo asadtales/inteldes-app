@@ -54,7 +54,7 @@ object NotulensiExporter {
 
     private fun buildPlainText(recording: Recording, notulensi: Notulensi): String = buildString {
         appendLine(recording.title)
-        appendLine("Kategori: ${recording.kind.label}  |  Tanggal: ${dateFormat.format(Date(recording.createdAt))}")
+        appendLine("Kategori: ${recording.kind}  |  Tanggal: ${dateFormat.format(Date(recording.createdAt))}")
         appendLine("Disusun oleh agent AI: ${notulensi.provider.label}")
         appendLine()
         appendLine("RINGKASAN")
@@ -115,7 +115,7 @@ object NotulensiExporter {
     private fun writeDocx(file: File, recording: Recording, notulensi: Notulensi) {
         val body = buildString {
             append(docTitle(recording.title))
-            append(paragraph("Kategori: ${recording.kind.label}  |  Tanggal: ${dateFormat.format(Date(recording.createdAt))}", sizeHalfPt = 18))
+            append(paragraph("Kategori: ${recording.kind}  |  Tanggal: ${dateFormat.format(Date(recording.createdAt))}", sizeHalfPt = 18))
             append(paragraph("Disusun oleh agent AI: ${notulensi.provider.label}", sizeHalfPt = 18))
             append(heading("Ringkasan"))
             append(paragraph(notulensi.summary))

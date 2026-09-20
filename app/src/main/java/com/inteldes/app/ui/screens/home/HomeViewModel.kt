@@ -7,7 +7,6 @@ import androidx.lifecycle.viewModelScope
 import com.inteldes.app.data.audio.AudioFileImporter
 import com.inteldes.app.data.audio.ImportedAudio
 import com.inteldes.app.data.model.Recording
-import com.inteldes.app.data.model.RecordingKind
 import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.data.prefs.AppSettingsStore
 import com.inteldes.app.data.repository.RecordingRepository
@@ -28,6 +27,8 @@ data class HomeUiState(
     val visible: List<Recording> = emptyList(),
     val query: String = "",
     val filter: String = "Semua",
+    val filters: List<String> = listOf("Semua"),
+    val categories: List<String> = emptyList(),
     val pendingUpload: ImportedAudio? = null,
     val importing: Boolean = false,
     val uploadError: String? = null,
@@ -47,16 +48,15 @@ class HomeViewModel(
     private val uploadReadyChannel = Channel<String>(Channel.BUFFERED)
     val onUploadProcessed = uploadReadyChannel.receiveAsFlow()
 
-    val filters = listOf("Semua", RecordingKind.MUSDES.label, RecordingKind.BPD.label, RecordingKind.BUMDES.label, RecordingKind.WARGA.label)
-
     private data class Flags(val pending: ImportedAudio?, val importing: Boolean, val error: String?)
 
     val uiState: StateFlow<HomeUiState> = combine(
         combine(repository.observeRecordings(), query, filter) { recs, q, f -> Triple(recs, q, f) },
         combine(pendingUpload, importing, uploadError) { p, i, e -> Flags(p, i, e) },
-    ) { (recs, q, f), flags ->
+        repository.observeCategories(),
+    ) { (recs, q, f), flags, categories ->
         val visible = recs.filter { r ->
-            (f == "Semua" || r.kind.label == f) &&
+            (f == "Semua" || r.kind == f) &&
                 (q.isBlank() || r.title.contains(q, ignoreCase = true) || (r.summary?.contains(q, ignoreCase = true) == true))
         }
         HomeUiState(
@@ -65,6 +65,8 @@ class HomeViewModel(
             visible = visible,
             query = q,
             filter = f,
+            filters = listOf("Semua") + categories,
+            categories = categories,
             pendingUpload = flags.pending,
             importing = flags.importing,
             uploadError = flags.error,
@@ -73,6 +75,7 @@ class HomeViewModel(
 
     fun setQuery(value: String) { query.value = value }
     fun setFilter(value: String) { filter.value = value }
+    fun addCategory(label: String) { viewModelScope.launch { repository.addCategory(label) } }
 
     fun onFilePicked(uri: Uri) {
         viewModelScope.launch {
@@ -93,7 +96,7 @@ class HomeViewModel(
         pendingUpload.value = null
     }
 
-    fun confirmUpload(title: String, kind: RecordingKind) {
+    fun confirmUpload(title: String, kind: String) {
         val audio = pendingUpload.value ?: return
         pendingUpload.value = null
         viewModelScope.launch {

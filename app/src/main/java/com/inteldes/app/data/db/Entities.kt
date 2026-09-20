@@ -6,16 +6,22 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.QuestionStatus
-import com.inteldes.app.data.model.RecordingKind
 import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.data.model.WhisperEngine
 import java.util.UUID
+
+@Entity(tableName = "categories", indices = [Index("label", unique = true)])
+data class CategoryEntity(
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val label: String,
+    val orderIndex: Int,
+)
 
 @Entity(tableName = "recordings")
 data class RecordingEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
     val title: String,
-    val kind: RecordingKind,
+    val kind: String,
     val createdAt: Long,
     val durationSec: Int,
     val audioFilePath: String?,
