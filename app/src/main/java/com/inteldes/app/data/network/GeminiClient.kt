@@ -100,13 +100,13 @@ class GeminiClient(private val apiKey: String, private val model: String = MODEL
             callText(body)
         }
 
-    private fun callText(body: JsonObject): String {
+    private suspend fun callText(body: JsonObject): String {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
         val request = Request.Builder()
             .url(url)
             .post(HttpClient.gson.toJson(body).toRequestBody("application/json".toMediaType()))
             .build()
-        HttpClient.client.newCall(request).execute().use { resp ->
+        HttpClient.client.newCall(request).await().use { resp ->
             val raw = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw ApiException("Gemini API gagal (${resp.code}): ${raw.take(300)}", resp.code)
             val parsed = HttpClient.gson.fromJson(raw, GeminiResponse::class.java)

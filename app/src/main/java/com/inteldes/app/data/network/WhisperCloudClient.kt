@@ -41,7 +41,7 @@ class WhisperCloudClient(private val apiKey: String) {
                 .post(body)
                 .build()
 
-            HttpClient.client.newCall(request).execute().use { resp ->
+            HttpClient.client.newCall(request).await().use { resp ->
                 val raw = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
                     throw ApiException("Transkripsi awan gagal (${resp.code}): ${raw.take(300)}", resp.code)

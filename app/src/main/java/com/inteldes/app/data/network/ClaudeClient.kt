@@ -62,7 +62,7 @@ class ClaudeClient(private val apiKey: String, private val model: String = MODEL
                 .addHeader("anthropic-version", "2023-06-01")
                 .post(HttpClient.gson.toJson(body).toRequestBody("application/json".toMediaType()))
                 .build()
-            HttpClient.client.newCall(request).execute().use { resp ->
+            HttpClient.client.newCall(request).await().use { resp ->
                 val raw = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) throw ApiException("Claude API gagal (${resp.code}): ${raw.take(300)}", resp.code)
                 val parsed = HttpClient.gson.fromJson(raw, ClaudeResponse::class.java)
@@ -107,7 +107,7 @@ class ClaudeClient(private val apiKey: String, private val model: String = MODEL
                 .addHeader("anthropic-version", "2023-06-01")
                 .post(HttpClient.gson.toJson(body).toRequestBody("application/json".toMediaType()))
                 .build()
-            HttpClient.client.newCall(request).execute().use { resp ->
+            HttpClient.client.newCall(request).await().use { resp ->
                 val raw = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) throw ApiException("Claude API gagal (${resp.code}): ${raw.take(300)}", resp.code)
                 val parsed = HttpClient.gson.fromJson(raw, ClaudeResponse::class.java)

@@ -68,6 +68,9 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
                 onBackgroundIt = {
                     navController.popBackStack(Routes.Home.route, inclusive = false)
                 },
+                onCancelled = {
+                    navController.popBackStack(Routes.Home.route, inclusive = false)
+                },
             )
         }
 

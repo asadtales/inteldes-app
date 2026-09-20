@@ -37,6 +37,7 @@ fun ProcessingScreen(
     recordingId: String,
     onDone: () -> Unit,
     onBackgroundIt: () -> Unit,
+    onCancelled: () -> Unit,
 ) {
     val vm: ProcessingViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
@@ -55,7 +56,22 @@ fun ProcessingScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 16.dp)) {
-            Text("MEMPROSES", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.5.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text("MEMPROSES", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.5.sp)
+                Spacer(Modifier.weight(1f))
+                if (state.error == null) {
+                    Text(
+                        "BATAL",
+                        color = IdColor.Neutral700,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        modifier = Modifier.clickable {
+                            vm.cancel(recordingId)
+                            onCancelled()
+                        },
+                    )
+                }
+            }
             Spacer(Modifier.height(10.dp))
             Text(state.recording?.title ?: "", style = androidx.compose.material3.MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(6.dp))

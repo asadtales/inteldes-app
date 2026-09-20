@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 data class ProcessingUiState(
     val recording: Recording? = null,
@@ -24,7 +25,7 @@ data class ProcessingUiState(
 
 class ProcessingViewModel(
     private val appContext: Context,
-    repository: RecordingRepository,
+    private val repository: RecordingRepository,
     recordingId: String,
 ) : ViewModel() {
 
@@ -38,5 +39,13 @@ class ProcessingViewModel(
 
     fun retry(recordingId: String) {
         ProcessRecordingWorker.enqueue(appContext, recordingId)
+    }
+
+    fun cancel(recordingId: String) {
+        ProcessRecordingWorker.cancel(appContext, recordingId)
+        // Don't wait on the worker noticing its job got cancelled — an in-flight network
+        // call won't unblock until it actually returns, which could take up to its own
+        // timeout. Mark it failed here so the UI reflects "Batal" immediately.
+        viewModelScope.launch { repository.markFailed(recordingId, "Dibatalkan oleh pengguna.") }
     }
 }
