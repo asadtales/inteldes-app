@@ -12,8 +12,11 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-/** Direct on-device calls to the Gemini API using the village's own BYO API key. */
-class GeminiClient(private val apiKey: String, private val model: String = "gemini-2.5-pro") {
+/**
+ * Direct on-device calls to the Gemini API using the village's own BYO API key.
+ * Default model per Google's own 404 guidance when gemini-2.5-pro was retired for new users.
+ */
+class GeminiClient(private val apiKey: String, private val model: String = "gemini-3.1-pro-preview") {
 
     suspend fun generateNotulensi(meetingTitle: String, segments: List<TranscriptSegment>, densityDetailed: Boolean): Notulensi =
         withContext(Dispatchers.IO) {
