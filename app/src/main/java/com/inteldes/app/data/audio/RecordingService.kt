@@ -24,19 +24,25 @@ class RecordingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification())
+        val isCall = intent?.getBooleanExtra(EXTRA_IS_CALL, false) ?: false
+        startForeground(NOTIFICATION_ID, buildNotification(isCall))
         return START_STICKY
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(isCall: Boolean): Notification {
         ensureChannel()
         val openIntent = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val (title, text) = if (isCall) {
+            "IntelDes sedang merekam panggilan WhatsApp" to "Beri tahu lawan bicara bila diperlukan. Ketuk untuk membuka."
+        } else {
+            "IntelDes sedang merekam" to "Ketuk untuk kembali ke rapat yang sedang direkam."
+        }
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("IntelDes sedang merekam")
-            .setContentText("Ketuk untuk kembali ke rapat yang sedang direkam.")
+            .setContentTitle(title)
+            .setContentText(text)
             .setSmallIcon(R.drawable.ic_mic)
             .setOngoing(true)
             .setContentIntent(openIntent)
@@ -57,9 +63,10 @@ class RecordingService : Service() {
     companion object {
         private const val CHANNEL_ID = "recording"
         private const val NOTIFICATION_ID = 1001
+        private const val EXTRA_IS_CALL = "is_call"
 
-        fun start(context: Context) {
-            val intent = Intent(context, RecordingService::class.java)
+        fun start(context: Context, isCall: Boolean = false) {
+            val intent = Intent(context, RecordingService::class.java).putExtra(EXTRA_IS_CALL, isCall)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
         }
 

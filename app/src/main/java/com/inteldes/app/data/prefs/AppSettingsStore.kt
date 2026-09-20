@@ -26,6 +26,7 @@ data class AppSettings(
     val outputLanguage: OutputLanguage = OutputLanguage.INDONESIA,
     val economyMode: Boolean = false,
     val speakerRoster: List<String> = emptyList(),
+    val autoRecordWhatsAppCalls: Boolean = false,
 )
 
 /** Non-secret app settings — everything except API keys, which live in [SecurePrefs]. */
@@ -39,6 +40,7 @@ class AppSettingsStore(private val context: Context) {
         val OUTPUT_LANGUAGE = stringPreferencesKey("output_language")
         val ECONOMY_MODE = booleanPreferencesKey("economy_mode")
         val SPEAKER_ROSTER = stringPreferencesKey("speaker_roster_json")
+        val AUTO_RECORD_WA_CALLS = booleanPreferencesKey("auto_record_wa_calls")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -51,6 +53,7 @@ class AppSettingsStore(private val context: Context) {
             outputLanguage = p[Keys.OUTPUT_LANGUAGE]?.let { runCatching { OutputLanguage.valueOf(it) }.getOrNull() } ?: OutputLanguage.INDONESIA,
             economyMode = p[Keys.ECONOMY_MODE] ?: false,
             speakerRoster = p[Keys.SPEAKER_ROSTER]?.let { runCatching { gson.fromJson<List<String>>(it, stringListType) }.getOrNull() } ?: emptyList(),
+            autoRecordWhatsAppCalls = p[Keys.AUTO_RECORD_WA_CALLS] ?: false,
         )
     }
 
@@ -93,5 +96,9 @@ class AppSettingsStore(private val context: Context) {
             val current = p[Keys.SPEAKER_ROSTER]?.let { runCatching { gson.fromJson<List<String>>(it, stringListType) }.getOrNull() } ?: emptyList()
             p[Keys.SPEAKER_ROSTER] = gson.toJson(current.filterNot { it == name })
         }
+    }
+
+    suspend fun setAutoRecordWhatsAppCalls(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.AUTO_RECORD_WA_CALLS] = enabled }
     }
 }
