@@ -35,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,11 +43,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.inteldes.app.data.export.NotulensiExporter
 import com.inteldes.app.data.model.ActionItem
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
 import com.inteldes.app.data.model.Decision
 import com.inteldes.app.data.model.Question
+import com.inteldes.app.data.model.Recording
 import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.data.model.Topic
 import com.inteldes.app.data.model.TranscriptSegment
@@ -110,6 +113,7 @@ fun DetailScreen(
                 onOpenProcessing = { onOpenProcessing(recording.id) },
             )
             state.tab == DetailTab.NOTES -> NotesTab(
+                recording = recording,
                 notulensi = state.notulensi,
                 regenerating = state.regenerating,
                 error = state.error,
@@ -195,6 +199,7 @@ private fun NotDoneState(statusIsWorking: Boolean, errorMessage: String?, onOpen
 
 @Composable
 private fun NotesTab(
+    recording: Recording,
     notulensi: com.inteldes.app.data.model.Notulensi?,
     regenerating: Boolean,
     error: String?,
@@ -202,6 +207,7 @@ private fun NotesTab(
     onChangeAgent: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     if (notulensi == null) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("Notulensi belum tersedia.", color = IdColor.Neutral700, fontSize = 13.sp)
@@ -267,6 +273,43 @@ private fun NotesTab(
                         .weight(1f)
                         .background(IdColor.Neutral900)
                         .clickable(onClick = onChangeAgent)
+                        .padding(vertical = 12.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
+            Row(modifier = Modifier.padding(bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "EKSPOR .TXT",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = IdColor.Text,
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(IdColor.Neutral100)
+                        .clickable {
+                            val uri = NotulensiExporter.exportTxt(context, recording, notulensi)
+                            context.startActivity(NotulensiExporter.shareIntent(uri, "text/plain"))
+                        }
+                        .padding(vertical = 12.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                Text(
+                    "EKSPOR WORD",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = IdColor.Text,
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(IdColor.Neutral100)
+                        .clickable {
+                            val uri = NotulensiExporter.exportDocx(context, recording, notulensi)
+                            context.startActivity(
+                                NotulensiExporter.shareIntent(
+                                    uri,
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                ),
+                            )
+                        }
                         .padding(vertical = 12.dp),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
