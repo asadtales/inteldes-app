@@ -135,7 +135,7 @@ fun RecordingDetailsDialog(
                 color = IdColor.Accent,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.clickable {
-                    val finalTitle = title.ifBlank { "Rapat ${SimpleDateFormat("d MMM yyyy", Locale("id", "ID")).format(Date())}" }
+                    val finalTitle = title.ifBlank { "Rapat ${SimpleDateFormat("d MMM yyyy, HH:mm", Locale("id", "ID")).format(Date())}" }
                     onConfirm(finalTitle, kind)
                 }.padding(10.dp),
             )

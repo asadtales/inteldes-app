@@ -1,5 +1,7 @@
 package com.inteldes.app.ui.screens.home
 
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,9 +33,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,6 +76,20 @@ fun HomeScreen(
 
     LaunchedEffect(Unit) {
         vm.onUploadProcessed.collect { id -> onUploadReady(id) }
+    }
+
+    // Home is the root screen — a bare back press here would exit the app immediately
+    // with no warning. Require a second press within 2s, same as most Android apps.
+    val context = LocalContext.current
+    var lastBackPressAt by remember { mutableLongStateOf(0L) }
+    BackHandler {
+        val now = System.currentTimeMillis()
+        if (now - lastBackPressAt < 2000) {
+            (context as? android.app.Activity)?.finish()
+        } else {
+            lastBackPressAt = now
+            Toast.makeText(context, "Tekan sekali lagi untuk keluar", Toast.LENGTH_SHORT).show()
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize().background(IdColor.Bg)) {

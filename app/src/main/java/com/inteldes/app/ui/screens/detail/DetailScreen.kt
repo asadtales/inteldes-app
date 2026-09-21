@@ -27,6 +27,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -70,6 +72,7 @@ fun DetailScreen(
     val vm: DetailViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
     val playback by vm.playbackState.collectAsStateWithLifecycle()
+    val onSeek: (Int) -> Unit = vm::seekPlayback
 
     androidx.compose.runtime.LaunchedEffect(initialTab) {
         vm.setTab(if (initialTab == "script") DetailTab.SCRIPT else if (initialTab == "ask") DetailTab.ASK else DetailTab.NOTES)
@@ -112,6 +115,7 @@ fun DetailScreen(
                 errorMessage = recording.errorMessage,
                 playback = playback,
                 onTogglePlay = vm::togglePlayback,
+                onSeek = onSeek,
                 onOpenProcessing = { onOpenProcessing(recording.id) },
             )
             state.tab == DetailTab.NOTES -> NotesTab(
@@ -128,6 +132,7 @@ fun DetailScreen(
                 playback = playback,
                 roster = state.speakerRoster,
                 onTogglePlay = vm::togglePlayback,
+                onSeek = onSeek,
                 onRenameSpeaker = vm::renameSpeaker,
                 modifier = Modifier.weight(1f),
             )
@@ -167,12 +172,60 @@ private fun TabButton(label: String, selected: Boolean, modifier: Modifier = Mod
     }
 }
 
+/** Play/pause + a draggable seek slider — shared by the not-done screen and the Transkrip tab. */
+@Composable
+private fun AudioPlayerBar(
+    playback: com.inteldes.app.data.audio.PlaybackState,
+    onTogglePlay: () -> Unit,
+    onSeek: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // While the user is dragging, show the drag position instead of the player's own
+    // (still-ticking) position — otherwise the thumb fights the live playback position.
+    var dragPositionSec by remember { mutableStateOf<Int?>(null) }
+    val shownPositionSec = dragPositionSec ?: playback.positionSec
+
+    Column(modifier = modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier.size(42.dp).background(IdColor.Accent).clickable(onClick = onTogglePlay),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (playback.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    tint = IdColor.White,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(
+                "${formatRecordTimer(shownPositionSec)} / ${formatRecordTimer(playback.durationSec)}",
+                color = IdColor.Neutral700,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Slider(
+            value = shownPositionSec.toFloat(),
+            onValueChange = { dragPositionSec = it.toInt() },
+            onValueChangeFinished = {
+                dragPositionSec?.let(onSeek)
+                dragPositionSec = null
+            },
+            valueRange = 0f..playback.durationSec.coerceAtLeast(1).toFloat(),
+            colors = SliderDefaults.colors(thumbColor = IdColor.Accent, activeTrackColor = IdColor.Accent, inactiveTrackColor = IdColor.Neutral300),
+            modifier = Modifier.fillMaxWidth().height(28.dp),
+        )
+    }
+}
+
 @Composable
 private fun NotDoneState(
     statusIsWorking: Boolean,
     errorMessage: String?,
     playback: com.inteldes.app.data.audio.PlaybackState,
     onTogglePlay: () -> Unit,
+    onSeek: (Int) -> Unit,
     onOpenProcessing: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -197,25 +250,7 @@ private fun NotDoneState(
             Spacer(Modifier.height(22.dp))
             Text("Rekaman audio asli tetap bisa diputar:", color = IdColor.Neutral700, fontSize = 12.sp)
             Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier.size(42.dp).background(IdColor.Accent).clickable(onClick = onTogglePlay),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (playback.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        tint = IdColor.White,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "${formatRecordTimer(playback.positionSec)} / ${formatRecordTimer(playback.durationSec)}",
-                    color = IdColor.Neutral700,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+            AudioPlayerBar(playback, onTogglePlay, onSeek, modifier = Modifier.fillMaxWidth())
         }
         Spacer(Modifier.height(18.dp))
         Text(
@@ -418,6 +453,7 @@ private fun ScriptTab(
     playback: com.inteldes.app.data.audio.PlaybackState,
     roster: List<String>,
     onTogglePlay: () -> Unit,
+    onSeek: (Int) -> Unit,
     onRenameSpeaker: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -425,28 +461,12 @@ private fun ScriptTab(
 
     Column(modifier = modifier.fillMaxSize()) {
         if (playback.ready) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
-            ) {
-                Box(
-                    modifier = Modifier.size(42.dp).background(IdColor.Accent).clickable(onClick = onTogglePlay),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (playback.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        tint = IdColor.White,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "${formatRecordTimer(playback.positionSec)} / ${formatRecordTimer(playback.durationSec)}",
-                    color = IdColor.Neutral700,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+            AudioPlayerBar(
+                playback,
+                onTogglePlay,
+                onSeek,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+            )
             HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
         }
         LazyColumn(modifier = Modifier.weight(1f)) {

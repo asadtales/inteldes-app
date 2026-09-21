@@ -57,6 +57,7 @@ class DetailViewModel(
     }
 
     fun togglePlayback() = player.togglePlay()
+    fun seekPlayback(sec: Int) = player.seekTo(sec)
 
     override fun onCleared() {
         super.onCleared()
