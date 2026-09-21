@@ -25,17 +25,21 @@ class SecurePrefs(context: Context) {
     )
 
     var geminiApiKey: String?
-        get() = prefs.getString(KEY_GEMINI, null)
-        set(value) = prefs.edit().putString(KEY_GEMINI, value).apply()
+        // Reading also trims: a key saved before this fix (e.g. copy-pasted with a
+        // trailing newline) would otherwise keep breaking every call using it as an
+        // HTTP header, since header values reject control characters outright —
+        // unlike a URL query parameter, which silently percent-encodes them.
+        get() = prefs.getString(KEY_GEMINI, null)?.trim()
+        set(value) = prefs.edit().putString(KEY_GEMINI, value?.trim()).apply()
 
     var claudeApiKey: String?
-        get() = prefs.getString(KEY_CLAUDE, null)
-        set(value) = prefs.edit().putString(KEY_CLAUDE, value).apply()
+        get() = prefs.getString(KEY_CLAUDE, null)?.trim()
+        set(value) = prefs.edit().putString(KEY_CLAUDE, value?.trim()).apply()
 
     /** Key for the cloud Whisper transcription endpoint (OpenAI-compatible `audio/transcriptions`). */
     var whisperCloudApiKey: String?
-        get() = prefs.getString(KEY_WHISPER_CLOUD, null)
-        set(value) = prefs.edit().putString(KEY_WHISPER_CLOUD, value).apply()
+        get() = prefs.getString(KEY_WHISPER_CLOUD, null)?.trim()
+        set(value) = prefs.edit().putString(KEY_WHISPER_CLOUD, value?.trim()).apply()
 
     companion object {
         private const val KEY_GEMINI = "gemini_api_key"
