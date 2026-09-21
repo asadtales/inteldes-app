@@ -20,6 +20,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -33,11 +35,18 @@ const val KEY_ERROR = "error"
  * generation → persistence. Mirrors the Proses screen's step list 1:1 — each
  * [ProcessingStep] is reported via [setProgress] as it actually starts, not simulated.
  *
- * All recordings share one [QUEUE_NAME] work chain so they transcribe strictly one at
- * a time — running them concurrently was hammering the cloud transcription API and
- * tripping its rate limit (HTTP 429) on every recording, even lone ones queued right
- * after another. A 429 specifically triggers [Result.retry] with backoff instead of
- * failing outright, up to [MAX_ATTEMPTS] tries.
+ * Each recording is its own independent unique work item (name = [nameFor]) — WorkManager
+ * is free to run several concurrently. What actually keeps them from hitting the cloud
+ * transcription API at the same time (and tripping its rate limit) is [processingMutex]:
+ * every doWork() blocks on it before doing any real work, so only one recording's network
+ * calls run at a time, in the order they arrived. An earlier attempt tried to serialize
+ * them by chaining every recording into one shared WorkManager queue instead — but
+ * WorkManager cancels chained work automatically once an earlier link in the same chain
+ * permanently fails, so one bad recording silently doomed every recording queued after
+ * it. A plain in-process Mutex has no such failure-propagation behavior.
+ *
+ * A 429 from the cloud transcription API specifically triggers [Result.retry] with
+ * backoff instead of failing outright, up to [MAX_ATTEMPTS] tries.
  */
 class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
 
@@ -49,88 +58,95 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
         val recording = repo.getRecording(recordingId) ?: return Result.failure()
         repo.markWorking(recordingId)
 
-        try {
-            setProgress(workDataOf(KEY_STEP to ProcessingStep.PREP.name))
-            val audioPath = recording.audioFilePath
-                ?: throw ApiException("Berkas audio tidak ditemukan.")
-            val audioFile = File(audioPath)
-            if (!audioFile.exists()) throw ApiException("Berkas audio tidak ditemukan di perangkat.")
+        return processingMutex.withLock {
+            try {
+                setProgress(workDataOf(KEY_STEP to ProcessingStep.PREP.name))
+                val audioPath = recording.audioFilePath
+                    ?: throw ApiException("Berkas audio tidak ditemukan.")
+                val audioFile = File(audioPath)
+                if (!audioFile.exists()) throw ApiException("Berkas audio tidak ditemukan di perangkat.")
 
-            if (recording.engine == WhisperEngine.ON_DEVICE) {
-                throw ApiException("Whisper on-device belum tersedia di versi ini. Pilih mesin ‘Awan’ di layar rekam atau Pengaturan.")
+                if (recording.engine == WhisperEngine.ON_DEVICE) {
+                    throw ApiException("Whisper on-device belum tersedia di versi ini. Pilih mesin ‘Awan’ di layar rekam atau Pengaturan.")
+                }
+
+                setProgress(workDataOf(KEY_STEP to ProcessingStep.TRANSCRIBE.name))
+                val whisperKey = app.securePrefs.whisperCloudApiKey
+                    ?: throw ApiException("API key transkripsi awan belum diatur. Buka Pengaturan.")
+                val transcriptResult = WhisperCloudClient(whisperKey).transcribe(audioFile, recording.audioMimeType)
+
+                setProgress(workDataOf(KEY_STEP to ProcessingStep.DIARIZE.name))
+                repo.saveTranscript(recordingId, transcriptResult.speakerCount, transcriptResult.segments)
+
+                setProgress(workDataOf(KEY_STEP to ProcessingStep.SUMMARIZE.name))
+                val current = app.settingsStore.settings.first()
+                val generator = NotulensiGenerator(app.securePrefs)
+                val notulensi = generator.generateNotulensi(
+                    provider = current.provider,
+                    durationSec = recording.durationSec,
+                    meetingTitle = recording.title,
+                    segments = transcriptResult.segments,
+                    densityDetailed = current.densityDetailed,
+                    outputLanguage = current.outputLanguage,
+                    economyMode = current.economyMode,
+                )
+
+                setProgress(workDataOf(KEY_STEP to ProcessingStep.LINK.name))
+                val resolvedProvider = generator.resolve(current.provider, recording.durationSec)
+                repo.saveNotulensi(recordingId, resolvedProvider, notulensi)
+
+                if (!current.keepOriginalAudio) audioFile.delete()
+
+                Result.success()
+            } catch (e: CancellationException) {
+                // The coroutine is already cancelled at this point, so the DB write below needs
+                // NonCancellable or it would throw immediately without persisting anything.
+                withContext(NonCancellable) { repo.markFailed(recordingId, "Dibatalkan oleh pengguna.") }
+                throw e
+            } catch (e: ApiException) {
+                if (e.httpCode == 429 && runAttemptCount < MAX_ATTEMPTS - 1) {
+                    return@withLock Result.retry()
+                }
+                val message = if (e.httpCode == 429) {
+                    "Layanan transkripsi awan sedang dibatasi (terlalu banyak permintaan). Coba lagi beberapa menit lagi, atau cek kuota/plan API key kamu."
+                } else {
+                    e.message ?: "Gagal memproses rekaman."
+                }
+                repo.markFailed(recordingId, message)
+                Result.failure(workDataOf(KEY_ERROR to message))
+            } catch (e: Exception) {
+                repo.markFailed(recordingId, e.message ?: "Gagal memproses rekaman.")
+                Result.failure(workDataOf(KEY_ERROR to (e.message ?: "Gagal memproses rekaman.")))
             }
-
-            setProgress(workDataOf(KEY_STEP to ProcessingStep.TRANSCRIBE.name))
-            val whisperKey = app.securePrefs.whisperCloudApiKey
-                ?: throw ApiException("API key transkripsi awan belum diatur. Buka Pengaturan.")
-            val transcriptResult = WhisperCloudClient(whisperKey).transcribe(audioFile, recording.audioMimeType)
-
-            setProgress(workDataOf(KEY_STEP to ProcessingStep.DIARIZE.name))
-            repo.saveTranscript(recordingId, transcriptResult.speakerCount, transcriptResult.segments)
-
-            setProgress(workDataOf(KEY_STEP to ProcessingStep.SUMMARIZE.name))
-            val current = app.settingsStore.settings.first()
-            val generator = NotulensiGenerator(app.securePrefs)
-            val notulensi = generator.generateNotulensi(
-                provider = current.provider,
-                durationSec = recording.durationSec,
-                meetingTitle = recording.title,
-                segments = transcriptResult.segments,
-                densityDetailed = current.densityDetailed,
-                outputLanguage = current.outputLanguage,
-                economyMode = current.economyMode,
-            )
-
-            setProgress(workDataOf(KEY_STEP to ProcessingStep.LINK.name))
-            val resolvedProvider = generator.resolve(current.provider, recording.durationSec)
-            repo.saveNotulensi(recordingId, resolvedProvider, notulensi)
-
-            if (!current.keepOriginalAudio) audioFile.delete()
-
-            return Result.success()
-        } catch (e: CancellationException) {
-            // The coroutine is already cancelled at this point, so the DB write below needs
-            // NonCancellable or it would throw immediately without persisting anything.
-            withContext(NonCancellable) { repo.markFailed(recordingId, "Dibatalkan oleh pengguna.") }
-            throw e
-        } catch (e: ApiException) {
-            if (e.httpCode == 429 && runAttemptCount < MAX_ATTEMPTS - 1) {
-                return Result.retry()
-            }
-            val message = if (e.httpCode == 429) {
-                "Layanan transkripsi awan sedang dibatasi (terlalu banyak permintaan). Coba lagi beberapa menit lagi, atau cek kuota/plan API key kamu."
-            } else {
-                e.message ?: "Gagal memproses rekaman."
-            }
-            repo.markFailed(recordingId, message)
-            return Result.failure(workDataOf(KEY_ERROR to message))
-        } catch (e: Exception) {
-            repo.markFailed(recordingId, e.message ?: "Gagal memproses rekaman.")
-            return Result.failure(workDataOf(KEY_ERROR to (e.message ?: "Gagal memproses rekaman.")))
         }
     }
 
     companion object {
-        private const val QUEUE_NAME = "recording_processing_queue"
         private const val MAX_ATTEMPTS = 5
+        // Guards the actual network/API work across all ProcessRecordingWorker instances in
+        // this process, so recordings transcribe one at a time regardless of how many
+        // WorkManager itself schedules concurrently.
+        private val processingMutex = Mutex()
 
         fun enqueue(context: Context, recordingId: String) {
             val request = OneTimeWorkRequestBuilder<ProcessRecordingWorker>()
                 .setInputData(workDataOf(KEY_RECORDING_ID to recordingId))
-                .addTag(tagFor(recordingId))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
-            // APPEND_OR_REPLACE chains this behind whatever's already queued (and tolerates
-            // the previous chain having failed/cancelled) so recordings process one at a time.
-            WorkManager.getInstance(context).enqueueUniqueWork(QUEUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            // KEEP: a no-op if this recording already has pending/running work (so navigating
+            // back into the Processing screen while it's genuinely still going doesn't
+            // interrupt it), and starts a fresh attempt whenever nothing is currently pending —
+            // which is also true right after a previous attempt finished (failed/cancelled/
+            // succeeded), so this doubles as the retry path.
+            WorkManager.getInstance(context).enqueueUniqueWork(nameFor(recordingId), ExistingWorkPolicy.KEEP, request)
         }
 
         fun cancel(context: Context, recordingId: String) {
-            WorkManager.getInstance(context).cancelAllWorkByTag(tagFor(recordingId))
+            WorkManager.getInstance(context).cancelUniqueWork(nameFor(recordingId))
         }
 
         fun observeStep(context: Context, recordingId: String): Flow<ProcessingStep?> =
-            WorkManager.getInstance(context).getWorkInfosByTagFlow(tagFor(recordingId)).map { infos ->
+            WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(nameFor(recordingId)).map { infos ->
                 val info = infos.firstOrNull() ?: return@map null
                 when (info.state) {
                     WorkInfo.State.SUCCEEDED -> ProcessingStep.entries.last()
@@ -139,10 +155,10 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
             }
 
         fun observeError(context: Context, recordingId: String): Flow<String?> =
-            WorkManager.getInstance(context).getWorkInfosByTagFlow(tagFor(recordingId)).map { infos ->
+            WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(nameFor(recordingId)).map { infos ->
                 infos.firstOrNull()?.outputData?.getString(KEY_ERROR)
             }
 
-        private fun tagFor(recordingId: String) = "process_$recordingId"
+        private fun nameFor(recordingId: String) = "process_$recordingId"
     }
 }

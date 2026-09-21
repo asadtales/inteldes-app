@@ -20,6 +20,7 @@ import com.inteldes.app.ui.screens.home.HomeScreen
 import com.inteldes.app.ui.screens.processing.ProcessingScreen
 import com.inteldes.app.ui.screens.record.RecordScreen
 import com.inteldes.app.ui.screens.settings.SettingsScreen
+import com.inteldes.app.data.work.ProcessRecordingWorker
 
 @Composable
 fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNavController()) {
@@ -89,7 +90,15 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
                 initialTab = tab,
                 onBack = { navController.popBackStack() },
                 onGoSettings = { navController.navigate(Routes.Settings.route) },
-                onOpenProcessing = { id -> navController.navigate(Routes.Processing.of(id)) },
+                onOpenProcessing = { id ->
+                    // "LIHAT PROGRES"/"COBA LAGI" from the Detail screen used to just navigate
+                    // here assuming work was already running — true right after a recording is
+                    // first created, but not when reopening a previously failed one, where
+                    // nothing was actually enqueued. enqueue() uses KEEP, so this is a no-op
+                    // when work is genuinely still active and only starts fresh work otherwise.
+                    ProcessRecordingWorker.enqueue(app, id)
+                    navController.navigate(Routes.Processing.of(id))
+                },
             )
         }
 
