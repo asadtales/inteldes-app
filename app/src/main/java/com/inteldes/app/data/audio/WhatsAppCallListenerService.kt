@@ -44,6 +44,7 @@ class WhatsAppCallListenerService : NotificationListenerService() {
     private var callStartedAt = 0L
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        logIfFromWhatsApp(sbn, "posted")
         if (!isWhatsAppCallNotification(sbn)) return
         scope.launch {
             try {
@@ -71,6 +72,7 @@ class WhatsAppCallListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        logIfFromWhatsApp(sbn, "removed")
         if (!isWhatsAppCallNotification(sbn) || !triggeredByCall) return
         triggeredByCall = false
         scope.launch {
@@ -100,10 +102,35 @@ class WhatsAppCallListenerService : NotificationListenerService() {
         }
     }
 
-    /** WhatsApp tags its active-call notification with [Notification.CATEGORY_CALL] — the only reliable public signal. */
-    private fun isWhatsAppCallNotification(sbn: StatusBarNotification): Boolean =
-        (sbn.packageName == "com.whatsapp" || sbn.packageName == "com.whatsapp.w4b") &&
-            sbn.notification.category == Notification.CATEGORY_CALL
+    private fun isFromWhatsApp(sbn: StatusBarNotification) =
+        sbn.packageName == "com.whatsapp" || sbn.packageName == "com.whatsapp.w4b"
+
+    /**
+     * WhatsApp is *supposed* to tag its active-call notification with
+     * [Notification.CATEGORY_CALL], but that's unverified against a real call on a
+     * real device/WhatsApp build — a first attempt at this relied on category alone
+     * and a real-device test found it never fired at all. Falls back to any ongoing
+     * (non-dismissible) WhatsApp notification, since WhatsApp doesn't otherwise post
+     * persistent ongoing notifications outside of an active call.
+     */
+    private fun isWhatsAppCallNotification(sbn: StatusBarNotification): Boolean {
+        if (!isFromWhatsApp(sbn)) return false
+        val n = sbn.notification
+        if (n.category == Notification.CATEGORY_CALL) return true
+        return (n.flags and Notification.FLAG_ONGOING_EVENT) != 0
+    }
+
+    /** Diagnostic only — lets a `adb logcat` grab show exactly what WhatsApp posts, since the
+     * category/flags this relies on haven't been confirmed across WhatsApp builds/OEMs. */
+    private fun logIfFromWhatsApp(sbn: StatusBarNotification, event: String) {
+        if (!isFromWhatsApp(sbn)) return
+        val n = sbn.notification
+        Log.d(
+            TAG,
+            "WA notification $event: category=${n.category} ongoing=${(n.flags and Notification.FLAG_ONGOING_EVENT) != 0} " +
+                "channelId=${n.channelId} title=${n.extras?.getCharSequence(Notification.EXTRA_TITLE)}",
+        )
+    }
 
     companion object {
         private const val CALL_CATEGORY = "Panggilan WhatsApp"
