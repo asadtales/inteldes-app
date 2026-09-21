@@ -22,7 +22,7 @@ class GeminiClient(private val apiKey: String, private val model: String = MODEL
     companion object {
         const val MODEL_PRO = "gemini-3.1-pro-preview"
         /** Cheaper/faster sibling of [MODEL_PRO] — used when "Mode hemat token" is on. */
-        const val MODEL_FLASH = "gemini-3.1-flash-preview"
+        const val MODEL_FLASH = "gemini-3.8-flash"
     }
 
     suspend fun generateNotulensi(
@@ -101,9 +101,10 @@ class GeminiClient(private val apiKey: String, private val model: String = MODEL
         }
 
     private suspend fun callText(body: JsonObject): String {
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
         val request = Request.Builder()
             .url(url)
+            .addHeader("x-goog-api-key", apiKey)
             .post(HttpClient.gson.toJson(body).toRequestBody("application/json".toMediaType()))
             .build()
         HttpClient.client.newCall(request).await().use { resp ->
