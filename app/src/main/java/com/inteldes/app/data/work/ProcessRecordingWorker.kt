@@ -24,6 +24,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 private const val KEY_RECORDING_ID = "recordingId"
@@ -45,8 +46,10 @@ const val KEY_ERROR = "error"
  * permanently fails, so one bad recording silently doomed every recording queued after
  * it. A plain in-process Mutex has no such failure-propagation behavior.
  *
- * A 429 from the cloud transcription API specifically triggers [Result.retry] with
- * backoff instead of failing outright, up to [MAX_ATTEMPTS] tries.
+ * A 429 from the cloud transcription API, or any network-level [IOException] (timeout,
+ * dropped connection, transient DNS failure — all common on real mobile networks,
+ * especially uploading a long recording), triggers [Result.retry] with backoff instead
+ * of failing outright, up to [MAX_ATTEMPTS] tries.
  */
 class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
 
@@ -112,6 +115,16 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
                 } else {
                     e.message ?: "Gagal memproses rekaman."
                 }
+                repo.markFailed(recordingId, message)
+                Result.failure(workDataOf(KEY_ERROR to message))
+            } catch (e: IOException) {
+                // Connect/read/write timeouts, DNS hiccups, dropped connections — all common
+                // on real mobile networks, especially uploading a long recording. These are
+                // transient, so retry with backoff instead of failing on the first blip.
+                if (runAttemptCount < MAX_ATTEMPTS - 1) {
+                    return@withLock Result.retry()
+                }
+                val message = "Gagal terhubung ke layanan awan setelah beberapa kali percobaan: ${e.message ?: e.javaClass.simpleName}. Periksa koneksi internet lalu coba lagi."
                 repo.markFailed(recordingId, message)
                 Result.failure(workDataOf(KEY_ERROR to message))
             } catch (e: Exception) {

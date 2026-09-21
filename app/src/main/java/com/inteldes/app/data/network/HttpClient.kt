@@ -17,8 +17,9 @@ object HttpClient {
 
     val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(120, TimeUnit.SECONDS) // audio upload can be a large body
-        .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(300, TimeUnit.SECONDS) // audio upload can be a large body on a slow mobile link
+        .readTimeout(600, TimeUnit.SECONDS) // Deepgram returns the full transcript in one response —
+        // a long meeting (diarized, whisper-large) can take several minutes server-side before it replies
         .build()
 }
 
