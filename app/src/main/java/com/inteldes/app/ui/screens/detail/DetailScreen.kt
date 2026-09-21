@@ -110,6 +110,8 @@ fun DetailScreen(
             recording.status != RecordingStatus.DONE -> NotDoneState(
                 statusIsWorking = recording.status == RecordingStatus.WORKING,
                 errorMessage = recording.errorMessage,
+                playback = playback,
+                onTogglePlay = vm::togglePlayback,
                 onOpenProcessing = { onOpenProcessing(recording.id) },
             )
             state.tab == DetailTab.NOTES -> NotesTab(
@@ -166,7 +168,13 @@ private fun TabButton(label: String, selected: Boolean, modifier: Modifier = Mod
 }
 
 @Composable
-private fun NotDoneState(statusIsWorking: Boolean, errorMessage: String?, onOpenProcessing: () -> Unit) {
+private fun NotDoneState(
+    statusIsWorking: Boolean,
+    errorMessage: String?,
+    playback: com.inteldes.app.data.audio.PlaybackState,
+    onTogglePlay: () -> Unit,
+    onOpenProcessing: () -> Unit,
+) {
     Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(40.dp))
         Text(
@@ -185,6 +193,30 @@ private fun NotDoneState(statusIsWorking: Boolean, errorMessage: String?, onOpen
             fontSize = 13.sp,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
+        if (playback.ready) {
+            Spacer(Modifier.height(22.dp))
+            Text("Rekaman audio asli tetap bisa diputar:", color = IdColor.Neutral700, fontSize = 12.sp)
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier.size(42.dp).background(IdColor.Accent).clickable(onClick = onTogglePlay),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (playback.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = IdColor.White,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "${formatRecordTimer(playback.positionSec)} / ${formatRecordTimer(playback.durationSec)}",
+                    color = IdColor.Neutral700,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
         Spacer(Modifier.height(18.dp))
         Text(
             if (errorMessage != null) "COBA LAGI" else "LIHAT PROGRES",
