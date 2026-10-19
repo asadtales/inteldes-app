@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inteldes.app.data.model.ProcessingStep
 import com.inteldes.app.data.model.Recording
+import com.inteldes.app.data.model.RecordingMark
 import com.inteldes.app.data.model.RecordingStatus
+import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.data.repository.RecordingRepository
 import com.inteldes.app.data.work.ProcessRecordingWorker
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +21,7 @@ data class ProcessingUiState(
     val recording: Recording? = null,
     val currentStep: ProcessingStep? = null,
     val error: String? = null,
+    val marks: List<RecordingMark> = emptyList(),
 ) {
     val isDone: Boolean get() = recording?.status == RecordingStatus.DONE
 }
@@ -33,12 +36,22 @@ class ProcessingViewModel(
         repository.observeRecording(recordingId),
         ProcessRecordingWorker.observeStep(appContext, recordingId),
         ProcessRecordingWorker.observeError(appContext, recordingId),
-    ) { recording, step, error ->
-        ProcessingUiState(recording, step, error)
+        repository.observeMarks(recordingId),
+    ) { recording, step, error, marks ->
+        ProcessingUiState(recording, step, error, marks)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ProcessingUiState())
 
     fun retry(recordingId: String) {
         ProcessRecordingWorker.enqueue(appContext, recordingId)
+    }
+
+    /** Retry, but with an explicit engine + range choice first — a retry re-spends cloud
+     * tokens/quota, so it shouldn't silently reuse whatever was set before without asking. */
+    fun retryWithOptions(recordingId: String, engine: WhisperEngine, rangeStartSec: Int?, rangeEndSec: Int?) {
+        viewModelScope.launch {
+            repository.setEngine(recordingId, engine)
+            ProcessRecordingWorker.enqueue(appContext, recordingId, rangeStartSec, rangeEndSec)
+        }
     }
 
     fun cancel(recordingId: String) {

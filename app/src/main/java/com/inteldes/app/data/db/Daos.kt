@@ -46,6 +46,30 @@ interface RecordingDao {
 }
 
 @Dao
+interface RecordingMarkDao {
+    @Query("SELECT * FROM recording_marks WHERE recordingId = :recordingId ORDER BY timestampSec ASC")
+    fun observeForRecording(recordingId: String): Flow<List<RecordingMarkEntity>>
+
+    @Insert
+    suspend fun insert(entity: RecordingMarkEntity): Long
+
+    @Insert
+    suspend fun insertAll(entities: List<RecordingMarkEntity>)
+
+    @Delete
+    suspend fun delete(entity: RecordingMarkEntity)
+}
+
+@Dao
+interface NotulensiHistoryDao {
+    @Query("SELECT * FROM notulensi_history WHERE recordingId = :recordingId ORDER BY generatedAt DESC")
+    fun observeForRecording(recordingId: String): Flow<List<NotulensiHistoryEntity>>
+
+    @Insert
+    suspend fun insert(entity: NotulensiHistoryEntity)
+}
+
+@Dao
 interface NotesDao {
     @Query("SELECT * FROM topics WHERE recordingId = :recordingId ORDER BY orderIndex")
     fun observeTopics(recordingId: String): Flow<List<TopicEntity>>

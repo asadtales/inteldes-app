@@ -1,7 +1,5 @@
 package com.inteldes.app.ui.screens.settings
 
-import android.content.Intent
-import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,50 +23,31 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.app.NotificationManagerCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inteldes.app.data.model.AiProvider
+import com.inteldes.app.data.model.NotulensiDensity
 import com.inteldes.app.data.model.OutputLanguage
 import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.ui.components.KickerLabel
 import com.inteldes.app.ui.components.Pill
 import com.inteldes.app.ui.theme.IdColor
 
-private fun isNotificationAccessGranted(context: android.content.Context): Boolean =
-    NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
-
 @Composable
 fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack: () -> Unit) {
     val vm: SettingsViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    var notificationAccessGranted by remember { mutableStateOf(isNotificationAccessGranted(context)) }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) notificationAccessGranted = isNotificationAccessGranted(context)
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
 
     LazyColumn(modifier = Modifier.fillMaxSize().background(IdColor.Bg)) {
         item {
@@ -95,6 +74,16 @@ fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack
                     "Pakai model AI versi ringan (Gemini Flash / Claude Haiku) — lebih murah, ringkasan sedikit kurang detail",
                     if (state.settings.economyMode) "Aktif" else "Nonaktif",
                 ) { vm.setEconomyMode(!state.settings.economyMode) }
+                SettingRow(
+                    "Proses otomatis setelah rekam",
+                    "Nonaktifkan untuk hanya menyimpan rekaman dulu tanpa langsung transkrip — berguna saat belum ada internet atau ingin hemat kuota API. Proses bisa dimulai manual kapan saja dari halaman rekaman.",
+                    if (state.settings.autoProcessAfterRecording) "Aktif" else "Nonaktif",
+                ) { vm.setAutoProcessAfterRecording(!state.settings.autoProcessAfterRecording) }
+                SettingRow(
+                    "Tandai dengan tombol volume",
+                    "Saat layar rekam terbuka, tekan tombol volume juga menandai momen saat itu (seperti tombol rana kamera) — volume tetap berubah seperti biasa. Tidak berfungsi saat layar mati; gunakan tombol TANDAI di notifikasi untuk itu.",
+                    if (state.settings.markWithVolumeButton) "Aktif" else "Nonaktif",
+                ) { vm.setMarkWithVolumeButton(!state.settings.markWithVolumeButton) }
 
                 Row(
                     modifier = Modifier
@@ -132,12 +121,20 @@ fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack
 
                 KickerLabel("Transkripsi Whisper", modifier = Modifier.padding(bottom = 10.dp))
                 Row {
-                    EngineChoice("On-device", "Segera hadir", enabled = false, selected = false, modifier = Modifier.weight(1f)) {}
+                    EngineChoice("On-device", "Tanpa internet, satu pembicara", enabled = true, selected = state.settings.defaultEngine == WhisperEngine.ON_DEVICE, modifier = Modifier.weight(1f)) {
+                        vm.setDefaultEngine(WhisperEngine.ON_DEVICE)
+                    }
                     Spacer(Modifier.width(1.dp))
                     EngineChoice("Awan", "Whisper large + label pembicara", enabled = true, selected = state.settings.defaultEngine == WhisperEngine.CLOUD, modifier = Modifier.weight(1f)) {
                         vm.setDefaultEngine(WhisperEngine.CLOUD)
                     }
                 }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "On-device mengunduh model (≈140MB) sekali di awal, lalu bekerja tanpa internet. Belum bisa memisahkan label pembicara.",
+                    color = IdColor.Neutral600,
+                    fontSize = 10.5.sp,
+                )
                 Spacer(Modifier.height(10.dp))
                 Text(
                     "Pilihan ini jadi bawaan; tetap bisa diganti di layar rekam.",
@@ -147,40 +144,29 @@ fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack
 
                 Spacer(Modifier.height(18.dp))
 
-                SettingRow(
-                    "Panjang notulensi",
-                    "Gaya ringkas atau detail saat AI menyusun notulensi",
-                    if (state.settings.densityDetailed) "Detail" else "Ringkas",
-                ) { vm.setDensityDetailed(!state.settings.densityDetailed) }
+                Text("Panjang notulensi", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "Gaya ringkas, sedang, atau detail saat AI menyusun notulensi",
+                    color = IdColor.Neutral700,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                Row {
+                    NotulensiDensity.entries.forEachIndexed { i, d ->
+                        if (i > 0) Spacer(Modifier.width(1.dp))
+                        EngineChoice(d.label, d.desc, enabled = true, selected = state.settings.density == d, modifier = Modifier.weight(1f)) {
+                            vm.setDensity(d)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(13.dp))
+                HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
                 SettingRow(
                     "Simpan audio asli",
                     "Nonaktifkan untuk hapus audio otomatis setelah diproses",
                     if (state.settings.keepOriginalAudio) "Aktif" else "Nonaktif",
                 ) { vm.setKeepOriginalAudio(!state.settings.keepOriginalAudio) }
-                SettingRow(
-                    "Auto-rekam panggilan WhatsApp",
-                    if (!notificationAccessGranted) {
-                        "Butuh izin akses notifikasi — ketuk untuk membuka Pengaturan"
-                    } else {
-                        "Rekam otomatis via mikrofon saat panggilan WA aktif (aktifkan speaker agar suara lawan bicara ikut terekam)"
-                    },
-                    if (!notificationAccessGranted) "Belum diizinkan" else if (state.settings.autoRecordWhatsAppCalls) "Aktif" else "Nonaktif",
-                ) {
-                    if (!notificationAccessGranted) {
-                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                    } else {
-                        vm.setAutoRecordWhatsAppCalls(!state.settings.autoRecordWhatsAppCalls)
-                    }
-                }
-                if (state.settings.autoRecordWhatsAppCalls && notificationAccessGranted) {
-                    Text(
-                        "Beri tahu lawan bicara bahwa panggilan direkam bila diwajibkan oleh hukum setempat.",
-                        color = IdColor.Neutral600,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 10.dp),
-                    )
-                }
                 SettingRow(
                     "Label pembicara",
                     "Daftar nama perangkat desa untuk dipilih cepat saat labeli pembicara",

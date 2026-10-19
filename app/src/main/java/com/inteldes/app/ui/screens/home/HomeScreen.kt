@@ -48,12 +48,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.inteldes.app.data.audio.RecorderState
 import com.inteldes.app.data.model.Recording
 import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.ui.components.Pill
 import com.inteldes.app.ui.components.RecordingDetailsDialog
 import com.inteldes.app.ui.theme.IdColor
 import com.inteldes.app.ui.util.formatDuration
+import com.inteldes.app.ui.util.formatRecordTimer
 import com.inteldes.app.ui.util.formatRelativeDay
 
 private fun Modifier.hairline(color: Color) = this.border(BorderStroke(1.dp, color))
@@ -69,6 +71,7 @@ fun HomeScreen(
 ) {
     val vm: HomeViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
+    val isRecording = state.recorderState != RecorderState.IDLE
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { vm.onFilePicked(it) }
@@ -120,10 +123,32 @@ fun HomeScreen(
             Text("Arsip rapat", style = MaterialTheme.typography.headlineLarge)
             Spacer(Modifier.height(4.dp))
             Text(
-                "${state.allCount} rekaman" + if (state.workingCount > 0) " · ${state.workingCount} sedang diproses" else "",
+                "${state.allCount} rekaman" +
+                    (if (state.workingCount > 0) " · ${state.workingCount} sedang diproses" else "") +
+                    " · $engineShortLabel",
                 color = IdColor.Neutral700,
                 fontSize = 12.sp,
             )
+            if (isRecording) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(IdColor.Accent)
+                        .clickable(onClick = onRecord)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    Text(
+                        "● SEDANG MEREKAM · ${formatRecordTimer(state.recordingElapsedSec)}",
+                        color = IdColor.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 12.sp,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text("KEMBALI ›", color = IdColor.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+            }
             Spacer(Modifier.height(13.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -196,37 +221,35 @@ fun HomeScreen(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .weight(1.6f)
+                        .weight(2.6f)
                         .clickable(onClick = onRecord)
                         .background(IdColor.Accent)
-                        .padding(vertical = 15.dp, horizontal = 16.dp),
+                        .padding(vertical = 17.dp, horizontal = 16.dp),
                 ) {
-                    Icon(Icons.Filled.Mic, contentDescription = null, tint = IdColor.White, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Mic, contentDescription = null, tint = IdColor.White, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text("REKAM RAPAT", color = IdColor.White, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                    Text(if (isRecording) "KEMBALI KE REKAMAN" else "REKAM RAPAT", color = IdColor.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
                 }
                 Spacer(Modifier.width(1.dp))
                 Column(
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(0.8f)
                         .hairline(IdColor.Divider)
-                        .clickable(enabled = !state.importing) { filePicker.launch(arrayOf("audio/*")) }
-                        .padding(vertical = 12.dp),
+                        .clickable(enabled = !state.importing && !isRecording) { filePicker.launch(arrayOf("audio/*")) }
+                        .padding(vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Icon(Icons.Filled.FileUpload, contentDescription = null, tint = IdColor.Text, modifier = Modifier.size(17.dp))
-                    Spacer(Modifier.height(3.dp))
+                    Icon(Icons.Filled.FileUpload, contentDescription = null, tint = IdColor.Text, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         if (state.importing) "MEMBACA…" else "UNGGAH",
                         color = IdColor.Text,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 10.5.sp,
-                        letterSpacing = 0.5.sp,
+                        fontSize = 9.5.sp,
+                        letterSpacing = 0.3.sp,
                     )
                 }
             }
-            Spacer(Modifier.height(6.dp))
-            Text(engineShortLabel, color = IdColor.Neutral600, fontWeight = FontWeight.SemiBold, fontSize = 10.5.sp)
         }
     }
 
@@ -237,6 +260,8 @@ fun HomeScreen(
             onAddCategory = vm::addCategory,
             onDismiss = { vm.cancelPendingUpload() },
             onConfirm = { title, kind -> vm.confirmUpload(title, kind) },
+            engine = state.uploadEngine,
+            onEngineChange = vm::setUploadEngine,
         )
     }
 }

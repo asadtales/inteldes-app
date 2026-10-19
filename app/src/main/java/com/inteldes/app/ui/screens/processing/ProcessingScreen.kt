@@ -20,6 +20,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -28,6 +31,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inteldes.app.data.model.ProcessingStep
+import com.inteldes.app.data.model.WhisperEngine
+import com.inteldes.app.ui.components.TranscribeOptionsDialog
 import com.inteldes.app.ui.theme.IdColor
 import com.inteldes.app.ui.util.formatDuration
 
@@ -88,6 +93,7 @@ fun ProcessingScreen(
         }
 
         if (state.error != null) {
+            var showEnginePicker by remember { mutableStateOf(false) }
             Column(modifier = Modifier.padding(18.dp)) {
                 Text("Gagal memproses", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 Spacer(Modifier.height(6.dp))
@@ -100,8 +106,20 @@ fun ProcessingScreen(
                     fontSize = 12.sp,
                     modifier = Modifier
                         .background(IdColor.Accent)
-                        .clickable { vm.retry(recordingId) }
+                        .clickable { showEnginePicker = true }
                         .padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
+            if (showEnginePicker) {
+                TranscribeOptionsDialog(
+                    currentEngine = state.recording?.engine ?: WhisperEngine.CLOUD,
+                    durationSec = state.recording?.durationSec ?: 0,
+                    marks = state.marks,
+                    onDismiss = { showEnginePicker = false },
+                    onConfirm = { engine, start, end ->
+                        showEnginePicker = false
+                        vm.retryWithOptions(recordingId, engine, start, end)
+                    },
                 )
             }
         } else {

@@ -3,6 +3,7 @@ package com.inteldes.app.data.network
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
 import com.inteldes.app.data.model.Notulensi
+import com.inteldes.app.data.model.NotulensiDensity
 import com.inteldes.app.data.model.OutputLanguage
 import com.inteldes.app.data.model.TranscriptSegment
 import com.inteldes.app.data.prefs.SecurePrefs
@@ -43,14 +44,14 @@ class NotulensiGenerator(private val securePrefs: SecurePrefs) {
         durationSec: Int,
         meetingTitle: String,
         segments: List<TranscriptSegment>,
-        densityDetailed: Boolean,
+        density: NotulensiDensity,
         outputLanguage: OutputLanguage = OutputLanguage.INDONESIA,
         economyMode: Boolean = false,
     ): Notulensi {
         val resolved = resolve(provider, durationSec)
         return when (val client = clientFor(resolved, economyMode)) {
-            is GeminiClient -> client.generateNotulensi(meetingTitle, segments, densityDetailed, outputLanguage)
-            is ClaudeClient -> client.generateNotulensi(meetingTitle, segments, densityDetailed, outputLanguage)
+            is GeminiClient -> client.generateNotulensi(meetingTitle, segments, density, outputLanguage)
+            is ClaudeClient -> client.generateNotulensi(meetingTitle, segments, density, outputLanguage)
             else -> error("unreachable")
         }
     }

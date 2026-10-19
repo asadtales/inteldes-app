@@ -12,6 +12,10 @@ import com.inteldes.app.data.network.NotulensiGenerator
 import com.inteldes.app.data.prefs.AppSettingsStore
 import com.inteldes.app.data.prefs.SecurePrefs
 import com.inteldes.app.data.repository.RecordingRepository
+import com.inteldes.app.data.work.ProcessRecordingWorker
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,29 +23,41 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class DetailTab { NOTES, SCRIPT, ASK }
+
+/** Matches the `tab=` query values `Routes.Detail`/`Routes.Processing` expect. */
+val DetailTab.routeName: String
+    get() = when (this) {
+        DetailTab.NOTES -> "notes"
+        DetailTab.SCRIPT -> "script"
+        DetailTab.ASK -> "ask"
+    }
 
 data class DetailUiState(
     val recording: Recording? = null,
     val notulensi: Notulensi? = null,
     val transcript: List<TranscriptSegment> = emptyList(),
     val chat: List<ChatMessage> = emptyList(),
-    val tab: DetailTab = DetailTab.NOTES,
+    val tab: DetailTab = DetailTab.SCRIPT,
     val thinking: Boolean = false,
     val regenerating: Boolean = false,
     val error: String? = null,
     val speakerRoster: List<String> = emptyList(),
+    val notulensiHistory: List<com.inteldes.app.data.model.NotulensiHistoryEntry> = emptyList(),
+    val marks: List<com.inteldes.app.data.model.RecordingMark> = emptyList(),
 )
 
 class DetailViewModel(
+    private val appContext: android.content.Context,
     private val repository: RecordingRepository,
     private val settingsStore: AppSettingsStore,
     private val securePrefs: SecurePrefs,
     private val recordingId: String,
 ) : ViewModel() {
 
-    private val tab = MutableStateFlow(DetailTab.NOTES)
+    private val tab = MutableStateFlow(DetailTab.SCRIPT)
     private val thinking = MutableStateFlow(false)
     private val regenerating = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
@@ -59,6 +75,27 @@ class DetailViewModel(
     fun togglePlayback() = player.togglePlay()
     fun seekPlayback(sec: Int) = player.seekTo(sec)
 
+    /** Marks wherever the player currently is — for flagging moments while listening back. */
+    fun addMarkAtPlayback() {
+        val sec = player.state.value.positionSec
+        viewModelScope.launch { repository.addMark(recordingId, sec, "Penanda") }
+    }
+
+    fun deleteMark(mark: com.inteldes.app.data.model.RecordingMark) {
+        viewModelScope.launch { repository.deleteMark(mark, recordingId) }
+    }
+
+    /** Cuts [startSec, endSec) into a new recording; the original is never touched. */
+    fun trimToNewRecording(startSec: Int, endSec: Int, onResult: (Result<String>) -> Unit) {
+        viewModelScope.launch {
+            val result = runCatching {
+                val source = repository.getRecording(recordingId) ?: error("Rekaman tidak ditemukan.")
+                repository.createTrimmedRecording(source, startSec, endSec, java.io.File(appContext.filesDir, "recordings"))
+            }
+            onResult(result)
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         player.release()
@@ -69,6 +106,7 @@ class DetailViewModel(
         val notulensi: Notulensi?,
         val transcript: List<TranscriptSegment>,
         val chat: List<ChatMessage>,
+        val history: List<com.inteldes.app.data.model.NotulensiHistoryEntry>,
     )
     private data class DetailFlags(val tab: DetailTab, val thinking: Boolean, val regenerating: Boolean, val error: String?)
 
@@ -77,15 +115,35 @@ class DetailViewModel(
         repository.observeNotulensi(recordingId),
         repository.observeTranscript(recordingId),
         repository.observeChat(recordingId),
-    ) { recording, notulensi, transcript, chat -> DetailData(recording, notulensi, transcript, chat) }
+        repository.observeNotulensiHistory(recordingId),
+    ) { recording, notulensi, transcript, chat, history -> DetailData(recording, notulensi, transcript, chat, history) }
 
     private val flagsFlow = combine(tab, thinking, regenerating, error) { t, think, regen, err -> DetailFlags(t, think, regen, err) }
 
-    val uiState: StateFlow<DetailUiState> = combine(dataFlow, flagsFlow, settingsStore.settings) { data, flags, settings ->
-        DetailUiState(data.recording, data.notulensi, data.transcript, data.chat, flags.tab, flags.thinking, flags.regenerating, flags.error, settings.speakerRoster)
+    val uiState: StateFlow<DetailUiState> = combine(
+        dataFlow, flagsFlow, settingsStore.settings, repository.observeMarks(recordingId),
+    ) { data, flags, settings, marks ->
+        DetailUiState(
+            data.recording, data.notulensi, data.transcript, data.chat, flags.tab, flags.thinking,
+            flags.regenerating, flags.error, settings.speakerRoster, data.history, marks,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DetailUiState())
 
     fun setTab(value: DetailTab) { tab.value = value }
+
+    /** Persists the chosen engine + range before handing back to the caller to actually
+     * enqueue/navigate. rangeStartSec/rangeEndSec null = transcribe the whole recording. */
+    fun startProcessing(
+        engine: com.inteldes.app.data.model.WhisperEngine,
+        rangeStartSec: Int?,
+        rangeEndSec: Int?,
+        onReady: (String, String, Int?, Int?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            repository.setEngine(recordingId, engine)
+            onReady(recordingId, tab.value.routeName, rangeStartSec, rangeEndSec)
+        }
+    }
 
     fun renameSpeaker(oldName: String, newName: String) {
         viewModelScope.launch {
@@ -125,8 +183,11 @@ class DetailViewModel(
         }
     }
 
+    private var regenerateJob: Job? = null
+
     fun regenerateNotulensi() {
-        viewModelScope.launch {
+        regenerateJob?.cancel()
+        regenerateJob = viewModelScope.launch {
             error.value = null
             regenerating.value = true
             try {
@@ -143,17 +204,33 @@ class DetailViewModel(
                     durationSec = recording.durationSec,
                     meetingTitle = recording.title,
                     segments = transcript,
-                    densityDetailed = settings.densityDetailed,
+                    density = settings.density,
                     outputLanguage = settings.outputLanguage,
                     economyMode = settings.economyMode,
                 )
                 val resolved = generator.resolve(settings.provider, recording.durationSec)
-                repository.saveNotulensi(recordingId, resolved, notulensi)
+                repository.saveNotulensi(recordingId, resolved, notulensi, settings.density)
+            } catch (e: CancellationException) {
+                withContext(NonCancellable) { error.value = "Dibatalkan oleh pengguna." }
+                throw e
             } catch (e: Exception) {
                 error.value = e.message ?: "Gagal menyusun ulang notulensi."
             } finally {
                 regenerating.value = false
             }
+        }
+    }
+
+    fun cancelRegenerate() {
+        regenerateJob?.cancel()
+    }
+
+    /** Stops any in-flight processing work and removes the recording (audio + all derived data). */
+    fun delete(onDone: () -> Unit) {
+        viewModelScope.launch {
+            ProcessRecordingWorker.cancel(appContext, recordingId)
+            repository.deleteRecording(recordingId)
+            onDone()
         }
     }
 }

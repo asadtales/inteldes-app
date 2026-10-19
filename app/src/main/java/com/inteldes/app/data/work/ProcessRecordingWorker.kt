@@ -1,19 +1,27 @@
 package com.inteldes.app.data.work
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import androidx.work.BackoffPolicy
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.inteldes.app.R
 import com.inteldes.app.IntelDesApp
+import com.inteldes.app.data.audio.whisper.OnDeviceWhisperClient
 import com.inteldes.app.data.model.ProcessingStep
 import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.data.network.ApiException
 import com.inteldes.app.data.network.NotulensiGenerator
+import com.inteldes.app.data.network.TranscriptResult
 import com.inteldes.app.data.network.WhisperCloudClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -29,6 +37,8 @@ import java.util.concurrent.TimeUnit
 
 private const val KEY_RECORDING_ID = "recordingId"
 private const val KEY_STEP = "step"
+private const val KEY_RANGE_START = "rangeStartSec"
+private const val KEY_RANGE_END = "rangeEndSec"
 const val KEY_ERROR = "error"
 
 /**
@@ -59,7 +69,15 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
         val repo = app.repository
 
         val recording = repo.getRecording(recordingId) ?: return Result.failure()
+        val rangeStartSec = inputData.getInt(KEY_RANGE_START, -1).takeIf { it >= 0 }
+        val rangeEndSec = inputData.getInt(KEY_RANGE_END, -1).takeIf { it >= 0 }
         repo.markWorking(recordingId)
+
+        // Promotes this work to a real foreground service (with an ongoing notification) for
+        // its whole duration — plain background WorkManager jobs have no such guarantee and
+        // real devices (Samsung's battery manager especially) do kill them once the app is
+        // fully backgrounded, silently breaking "PROSES DI LATAR BELAKANG" mid-transcription.
+        runCatching { setForeground(foregroundInfo(recording.title)) }
 
         return processingMutex.withLock {
             try {
@@ -69,14 +87,14 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
                 val audioFile = File(audioPath)
                 if (!audioFile.exists()) throw ApiException("Berkas audio tidak ditemukan di perangkat.")
 
-                if (recording.engine == WhisperEngine.ON_DEVICE) {
-                    throw ApiException("Whisper on-device belum tersedia di versi ini. Pilih mesin ‘Awan’ di layar rekam atau Pengaturan.")
-                }
-
                 setProgress(workDataOf(KEY_STEP to ProcessingStep.TRANSCRIBE.name))
-                val whisperKey = app.securePrefs.whisperCloudApiKey
-                    ?: throw ApiException("API key transkripsi awan belum diatur. Buka Pengaturan.")
-                val transcriptResult = WhisperCloudClient(whisperKey).transcribe(audioFile, recording.audioMimeType)
+                val transcriptResult: TranscriptResult = if (recording.engine == WhisperEngine.ON_DEVICE) {
+                    OnDeviceWhisperClient(app).transcribe(audioFile, rangeStartSec = rangeStartSec, rangeEndSec = rangeEndSec)
+                } else {
+                    val whisperKey = app.securePrefs.whisperCloudApiKey
+                        ?: throw ApiException("API key transkripsi awan belum diatur. Buka Pengaturan.")
+                    WhisperCloudClient(whisperKey).transcribe(audioFile, recording.audioMimeType, rangeStartSec = rangeStartSec, rangeEndSec = rangeEndSec)
+                }
 
                 setProgress(workDataOf(KEY_STEP to ProcessingStep.DIARIZE.name))
                 repo.saveTranscript(recordingId, transcriptResult.speakerCount, transcriptResult.segments)
@@ -89,14 +107,14 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
                     durationSec = recording.durationSec,
                     meetingTitle = recording.title,
                     segments = transcriptResult.segments,
-                    densityDetailed = current.densityDetailed,
+                    density = current.density,
                     outputLanguage = current.outputLanguage,
                     economyMode = current.economyMode,
                 )
 
                 setProgress(workDataOf(KEY_STEP to ProcessingStep.LINK.name))
                 val resolvedProvider = generator.resolve(current.provider, recording.durationSec)
-                repo.saveNotulensi(recordingId, resolvedProvider, notulensi)
+                repo.saveNotulensi(recordingId, resolvedProvider, notulensi, current.density)
 
                 if (!current.keepOriginalAudio) audioFile.delete()
 
@@ -134,16 +152,53 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
         }
     }
 
+    private fun foregroundInfo(title: String): ForegroundInfo {
+        ensureChannel()
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_mic)
+            .setContentTitle("Memproses rekaman")
+            .setContentText(title)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        // Must match the foregroundServiceType declared for SystemForegroundService in the
+        // manifest ("dataSync") — Android 14+ rejects a mismatch at runtime.
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ForegroundInfo(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun ensureChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = applicationContext.getSystemService(NotificationManager::class.java)
+            if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(CHANNEL_ID, "Memproses rekaman", NotificationManager.IMPORTANCE_LOW),
+                )
+            }
+        }
+    }
+
     companion object {
+        private const val CHANNEL_ID = "processing_channel"
+        private const val NOTIFICATION_ID = 3001
         private const val MAX_ATTEMPTS = 5
         // Guards the actual network/API work across all ProcessRecordingWorker instances in
         // this process, so recordings transcribe one at a time regardless of how many
         // WorkManager itself schedules concurrently.
         private val processingMutex = Mutex()
 
-        fun enqueue(context: Context, recordingId: String) {
+        fun enqueue(context: Context, recordingId: String, rangeStartSec: Int? = null, rangeEndSec: Int? = null) {
             val request = OneTimeWorkRequestBuilder<ProcessRecordingWorker>()
-                .setInputData(workDataOf(KEY_RECORDING_ID to recordingId))
+                .setInputData(
+                    workDataOf(
+                        KEY_RECORDING_ID to recordingId,
+                        KEY_RANGE_START to (rangeStartSec ?: -1),
+                        KEY_RANGE_END to (rangeEndSec ?: -1),
+                    ),
+                )
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
             // KEEP: a no-op if this recording already has pending/running work (so navigating

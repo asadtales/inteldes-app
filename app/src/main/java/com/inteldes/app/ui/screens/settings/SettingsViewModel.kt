@@ -3,6 +3,7 @@ package com.inteldes.app.ui.screens.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inteldes.app.data.model.AiProvider
+import com.inteldes.app.data.model.NotulensiDensity
 import com.inteldes.app.data.model.OutputLanguage
 import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.data.prefs.AppSettings
@@ -56,13 +57,14 @@ class SettingsViewModel(
 
     fun setProvider(p: AiProvider) { viewModelScope.launch { store.setProvider(p) } }
     fun setDefaultEngine(e: WhisperEngine) { viewModelScope.launch { store.setDefaultEngine(e) } }
-    fun setDensityDetailed(detailed: Boolean) { viewModelScope.launch { store.setDensityDetailed(detailed) } }
+    fun setDensity(density: NotulensiDensity) { viewModelScope.launch { store.setDensity(density) } }
     fun setKeepOriginalAudio(keep: Boolean) { viewModelScope.launch { store.setKeepOriginalAudio(keep) } }
     fun setOutputLanguage(language: OutputLanguage) { viewModelScope.launch { store.setOutputLanguage(language) } }
     fun setEconomyMode(enabled: Boolean) { viewModelScope.launch { store.setEconomyMode(enabled) } }
+    fun setAutoProcessAfterRecording(enabled: Boolean) { viewModelScope.launch { store.setAutoProcessAfterRecording(enabled) } }
+    fun setMarkWithVolumeButton(enabled: Boolean) { viewModelScope.launch { store.setMarkWithVolumeButton(enabled) } }
     fun addSpeakerRosterName(name: String) { viewModelScope.launch { store.addSpeakerRosterName(name) } }
     fun removeSpeakerRosterName(name: String) { viewModelScope.launch { store.removeSpeakerRosterName(name) } }
-    fun setAutoRecordWhatsAppCalls(enabled: Boolean) { viewModelScope.launch { store.setAutoRecordWhatsAppCalls(enabled) } }
 
     fun saveGeminiKey(key: String) { securePrefs.geminiApiKey = key.ifBlank { null }; keysTick.value++ }
     fun saveClaudeKey(key: String) { securePrefs.claudeApiKey = key.ifBlank { null }; keysTick.value++ }

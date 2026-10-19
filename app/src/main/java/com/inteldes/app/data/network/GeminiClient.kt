@@ -5,6 +5,7 @@ import com.google.gson.JsonObject
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
 import com.inteldes.app.data.model.Notulensi
+import com.inteldes.app.data.model.NotulensiDensity
 import com.inteldes.app.data.model.OutputLanguage
 import com.inteldes.app.data.model.TranscriptSegment
 import kotlinx.coroutines.Dispatchers
@@ -28,11 +29,11 @@ class GeminiClient(private val apiKey: String, private val model: String = MODEL
     suspend fun generateNotulensi(
         meetingTitle: String,
         segments: List<TranscriptSegment>,
-        densityDetailed: Boolean,
+        density: NotulensiDensity,
         outputLanguage: OutputLanguage = OutputLanguage.INDONESIA,
     ): Notulensi =
         withContext(Dispatchers.IO) {
-            val prompt = buildTranscriptPrompt(meetingTitle, segments, densityDetailed, outputLanguage)
+            val prompt = buildTranscriptPrompt(meetingTitle, segments, density, outputLanguage)
             val body = JsonObject().apply {
                 add(
                     "contents",

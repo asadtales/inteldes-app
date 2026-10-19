@@ -5,6 +5,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.inteldes.app.data.model.AiProvider
+import com.inteldes.app.data.model.NotulensiDensity
 import com.inteldes.app.data.model.QuestionStatus
 import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.data.model.WhisperEngine
@@ -33,6 +34,45 @@ data class RecordingEntity(
     val provider: AiProvider? = null,
     val notesGeneratedAt: Long? = null,
     val errorMessage: String? = null,
+    /** Density the *current* notulensi (above) was generated with — recorded so
+     * regenerating with a different density can archive the outgoing one correctly. */
+    val notulensiDensity: NotulensiDensity? = null,
+)
+
+/**
+ * A past notulensi generation, kept so switching density (Ringkas/Sedang/Detail) and
+ * regenerating doesn't destroy the previous result — stored as one JSON blob rather than
+ * mirroring topics/decisions/questions/actions into their own history tables, since this
+ * is write-once/read-whole and never queried by its internals.
+ */
+/** A user-tapped "mark this moment" bookmark, made during recording (or later on the
+ * transcript timeline) — anchors a shortcut selection when transcribing only part of a
+ * long recording (see [NotulensiHistoryEntity] siblings in the repository layer). */
+@Entity(
+    tableName = "recording_marks",
+    foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("recordingId")],
+)
+data class RecordingMarkEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val recordingId: String,
+    val timestampSec: Int,
+    val label: String,
+    val createdAt: Long,
+)
+
+@Entity(
+    tableName = "notulensi_history",
+    foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("recordingId")],
+)
+data class NotulensiHistoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val recordingId: String,
+    val generatedAt: Long,
+    val density: NotulensiDensity,
+    val provider: AiProvider,
+    val notulensiJson: String,
 )
 
 @Entity(

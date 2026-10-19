@@ -5,6 +5,7 @@ import com.inteldes.app.data.model.ChatMessage
 import com.inteldes.app.data.model.Decision
 import com.inteldes.app.data.model.Question
 import com.inteldes.app.data.model.Recording
+import com.inteldes.app.data.model.RecordingMark
 import com.inteldes.app.data.model.Topic
 import com.inteldes.app.data.model.TranscriptSegment
 
@@ -23,3 +24,4 @@ fun QuestionEntity.toDomain() = Question(question, status, note)
 fun ActionItemEntity.toDomain() = ActionItem(task, pic, due, sourceTimestampLabel, done)
 fun TranscriptSegmentEntity.toDomain() = TranscriptSegment(speaker, timestampSec, text)
 fun ChatMessageEntity.toDomain() = ChatMessage(isUser, text, createdAt)
+fun RecordingMarkEntity.toDomain() = RecordingMark(id, timestampSec, label)

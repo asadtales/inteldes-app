@@ -14,6 +14,12 @@ enum class OutputLanguage(val label: String, val promptName: String) {
     ENGLISH("English", "formal English"),
 }
 
+enum class NotulensiDensity(val label: String, val desc: String) {
+    RINGKAS("Ringkas", "Poin-poin inti saja, tanpa detail pendukung."),
+    SEDANG("Sedang", "Poin utama disertai konteks singkat."),
+    DETAIL("Detail", "Selengkap mungkin, termasuk detail pendukung dan kutipan."),
+}
+
 enum class QuestionStatus(val label: String) {
     UNANSWERED("Belum terjawab"), PARTIAL("Terjawab sebagian"), ANSWERED("Terjawab");
 }

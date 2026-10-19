@@ -1,6 +1,7 @@
 package com.inteldes.app.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.navigation.NavHostController
@@ -23,8 +24,15 @@ import com.inteldes.app.ui.screens.settings.SettingsScreen
 import com.inteldes.app.data.work.ProcessRecordingWorker
 
 @Composable
-fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNavController()) {
+fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNavController(), recordShortcutToken: Int = 0) {
     val appFactory = remember { AppViewModelFactory(app) }
+
+    // Launched from the "Rekam" home-screen shortcut — jump straight past the list.
+    // Keyed on the token (not a plain boolean) so tapping the shortcut again while the
+    // app is already open still navigates, even though the value stays truthy.
+    LaunchedEffect(recordShortcutToken) {
+        if (recordShortcutToken > 0) navController.navigate(Routes.Record.route) { launchSingleTop = true }
+    }
 
     NavHost(navController = navController, startDestination = Routes.Home.route) {
         composable(Routes.Home.route) {
@@ -34,7 +42,7 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
                 factory = appFactory,
                 engineShortLabel = engineLabel,
                 onOpenRecording = { id -> navController.navigate(Routes.Detail.of(id)) },
-                onRecord = { navController.navigate(Routes.Record.route) },
+                onRecord = { navController.navigate(Routes.Record.route) { launchSingleTop = true } },
                 onSettings = { navController.navigate(Routes.Settings.route) },
                 onUploadReady = { id -> navController.navigate(Routes.Processing.of(id)) },
             )
@@ -44,8 +52,12 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
             RecordScreen(
                 factory = appFactory,
                 onCancel = { navController.popBackStack() },
-                onRecordingReady = { id ->
-                    navController.navigate(Routes.Processing.of(id)) {
+                onRecordingReady = { id, autoProcessed ->
+                    // "Proses otomatis setelah rekam" off: the recording is only saved, not
+                    // enqueued — go straight to its (empty) Transkrip tab, where the user can
+                    // trigger processing manually whenever they actually want to spend on it.
+                    val destination = if (autoProcessed) Routes.Processing.of(id) else Routes.Detail.of(id)
+                    navController.navigate(destination) {
                         popUpTo(Routes.Home.route)
                     }
                 },
@@ -54,15 +66,19 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
 
         composable(
             route = Routes.Processing.route,
-            arguments = listOf(navArgument("recordingId") { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument("recordingId") { type = NavType.StringType },
+                navArgument("tab") { type = NavType.StringType; defaultValue = "script" },
+            ),
         ) { backStackEntry ->
             val recordingId = backStackEntry.arguments?.getString("recordingId") ?: return@composable
+            val tab = backStackEntry.arguments?.getString("tab") ?: "script"
             val factory = remember(recordingId) { processingViewModelFactory(app, recordingId) }
             ProcessingScreen(
                 factory = factory,
                 recordingId = recordingId,
                 onDone = {
-                    navController.navigate(Routes.Detail.of(recordingId)) {
+                    navController.navigate(Routes.Detail.of(recordingId, tab)) {
                         popUpTo(Routes.Home.route)
                     }
                 },
@@ -79,25 +95,25 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
             route = Routes.Detail.route,
             arguments = listOf(
                 navArgument("recordingId") { type = NavType.StringType },
-                navArgument("tab") { type = NavType.StringType; defaultValue = "notes" },
+                navArgument("tab") { type = NavType.StringType; defaultValue = "script" },
             ),
         ) { backStackEntry ->
             val recordingId = backStackEntry.arguments?.getString("recordingId") ?: return@composable
-            val tab = backStackEntry.arguments?.getString("tab") ?: "notes"
+            val tab = backStackEntry.arguments?.getString("tab") ?: "script"
             val factory = remember(recordingId) { detailViewModelFactory(app, recordingId) }
             DetailScreen(
                 factory = factory,
                 initialTab = tab,
                 onBack = { navController.popBackStack() },
                 onGoSettings = { navController.navigate(Routes.Settings.route) },
-                onOpenProcessing = { id ->
+                onOpenProcessing = { id, fromTab, rangeStartSec, rangeEndSec ->
                     // "LIHAT PROGRES"/"COBA LAGI" from the Detail screen used to just navigate
                     // here assuming work was already running — true right after a recording is
                     // first created, but not when reopening a previously failed one, where
                     // nothing was actually enqueued. enqueue() uses KEEP, so this is a no-op
                     // when work is genuinely still active and only starts fresh work otherwise.
-                    ProcessRecordingWorker.enqueue(app, id)
-                    navController.navigate(Routes.Processing.of(id))
+                    ProcessRecordingWorker.enqueue(app, id, rangeStartSec, rangeEndSec)
+                    navController.navigate(Routes.Processing.of(id, fromTab))
                 },
             )
         }

@@ -13,7 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -46,7 +49,7 @@ import com.inteldes.app.ui.util.formatRecordTimer
 fun RecordScreen(
     factory: androidx.lifecycle.ViewModelProvider.Factory,
     onCancel: () -> Unit,
-    onRecordingReady: (String) -> Unit,
+    onRecordingReady: (String, Boolean) -> Unit,
 ) {
     val vm: RecordViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
@@ -63,14 +66,22 @@ fun RecordScreen(
 
     LaunchedEffect(Unit) {
         if (hasPermission) {
-            if (state.recorderState == RecorderState.IDLE) vm.startRecording()
+            vm.startRecording()
         } else {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
     LaunchedEffect(Unit) {
-        vm.onRecordingReady.collect { id -> onRecordingReady(id) }
+        vm.onRecordingReady.collect { ready -> onRecordingReady(ready.recordingId, ready.autoProcessed) }
+    }
+
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        // Reads live state off vm directly (not the local `state` delegate) — this effect
+        // only runs once, so a lambda closing over `state` would freeze at whatever the
+        // setting was when the screen first opened instead of tracking later toggles.
+        VolumeMarkBridge.onVolumeKey = { if (vm.uiState.value.markWithVolumeButton) vm.addMark() }
+        onDispose { VolumeMarkBridge.onVolumeKey = null }
     }
 
     var showSaveDialog by remember { mutableStateOf(false) }
@@ -120,14 +131,38 @@ fun RecordScreen(
 
         Waveform(state.amplitudeHistory, animated = state.recorderState == RecorderState.RECORDING, modifier = Modifier.padding(20.dp).fillMaxWidth().height(54.dp))
 
-        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+        // Large and on its own, away from Jeda/Selesai — it used to sit squeezed between
+        // them at the bottom, an easy target to hit by mistake right when someone actually
+        // meant to pause or finish. Also reachable without opening the app at all, via the
+        // recording notification's own "TANDAI" action (see RecordingService).
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+            modifier = Modifier
+                .padding(horizontal = 20.dp)
+                .fillMaxWidth()
+                .background(IdColor.Accent)
+                .clickable(enabled = state.recorderState != RecorderState.IDLE) { vm.addMark() }
+                .padding(vertical = 16.dp),
+        ) {
+            Icon(Icons.Filled.Bookmark, contentDescription = null, tint = IdColor.White, modifier = Modifier.width(18.dp).height(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                if (state.marks.isEmpty()) "TANDAI POIN PENTING" else "TANDAI (${state.marks.size})",
+                color = IdColor.White,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 14.sp,
+            )
+        }
+
+        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
             Text("MESIN TRANSKRIP", color = IdColor.Neutral500, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp)
             Spacer(Modifier.height(9.dp))
             Row {
                 EngineOption(
-                    label = "On-device", note = "Segera hadir", selected = state.engine == WhisperEngine.ON_DEVICE,
-                    enabled = false, modifier = Modifier.weight(1f),
-                    onClick = {},
+                    label = "On-device", note = "Tanpa internet, satu pembicara", selected = state.engine == WhisperEngine.ON_DEVICE,
+                    enabled = true, modifier = Modifier.weight(1f),
+                    onClick = { vm.setEngine(WhisperEngine.ON_DEVICE) },
                 )
                 Spacer(Modifier.width(1.dp))
                 EngineOption(
@@ -138,15 +173,22 @@ fun RecordScreen(
             }
         }
 
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 20.dp, vertical = 14.dp)) {
-            Text("TRANSKRIP", color = IdColor.Neutral500, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp)
-            Spacer(Modifier.height(9.dp))
-            Text(
-                "Transkrip lengkap dengan label pembicara akan muncul setelah rekaman selesai diproses.",
-                color = IdColor.Neutral400,
-                fontSize = 13.sp,
-                lineHeight = 20.sp,
-            )
+        Column(modifier = Modifier.weight(1f).padding(horizontal = 20.dp, vertical = 6.dp)) {
+            if (state.marks.isNotEmpty()) {
+                Text("PENANDA", color = IdColor.Neutral500, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp)
+                Spacer(Modifier.height(9.dp))
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    state.marks.forEach { sec ->
+                        Text(
+                            formatRecordTimer(sec),
+                            color = IdColor.Neutral300,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.5.sp,
+                            modifier = Modifier.background(IdColor.Neutral900).padding(horizontal = 10.dp, vertical = 7.dp),
+                        )
+                    }
+                }
+            }
         }
 
         Row(modifier = Modifier.padding(top = 12.dp)) {
@@ -156,6 +198,7 @@ fun RecordScreen(
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
                 letterSpacing = 0.6.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier
                     .weight(1f)
                     .background(IdColor.Neutral900)
@@ -165,6 +208,7 @@ fun RecordScreen(
             Spacer(Modifier.width(1.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
                 modifier = Modifier
                     .weight(1.5f)
                     .background(IdColor.Accent)
@@ -173,7 +217,7 @@ fun RecordScreen(
             ) {
                 Icon(Icons.Filled.Stop, contentDescription = null, tint = IdColor.White, modifier = Modifier.width(14.dp).height(14.dp))
                 Spacer(Modifier.width(9.dp))
-                Text("SELESAI & PROSES", color = IdColor.White, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+                Text(if (state.autoProcess) "SELESAI & PROSES" else "SELESAI", color = IdColor.White, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
             }
         }
     }

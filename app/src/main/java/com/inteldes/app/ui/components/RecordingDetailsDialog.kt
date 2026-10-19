@@ -27,12 +27,21 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.ui.theme.IdColor
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Title + category prompt shared by the record flow and the file-upload flow. */
+/**
+ * Title + category prompt shared by the record flow and the file-upload flow.
+ *
+ * @param engine/onEngineChange Non-null only for the file-upload flow, which — unlike
+ * the record screen — has no earlier step where the user already picked Cloud vs
+ * On-device. Without this, uploads silently used whatever engine happened to be the
+ * app default, with no way to tell before it failed downstream (e.g. no API key set
+ * for that engine).
+ */
 @Composable
 fun RecordingDetailsDialog(
     dialogTitle: String = "Beri nama rapat ini",
@@ -40,6 +49,8 @@ fun RecordingDetailsDialog(
     onAddCategory: (String) -> Unit,
     onDismiss: () -> Unit,
     onConfirm: (String, String) -> Unit,
+    engine: WhisperEngine? = null,
+    onEngineChange: (WhisperEngine) -> Unit = {},
 ) {
     var title by remember { mutableStateOf("") }
     // Null means "no explicit pick yet" — falls back to the first category live, without
@@ -92,6 +103,29 @@ fun RecordingDetailsDialog(
                                 .clickable { addingNew = !addingNew }
                                 .padding(horizontal = 9.dp, vertical = 6.dp),
                         )
+                    }
+                }
+                if (engine != null) {
+                    Spacer(Modifier.height(14.dp))
+                    Text("MESIN TRANSKRIP", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            WhisperEngine.ON_DEVICE to "On-device",
+                            WhisperEngine.CLOUD to "Awan",
+                        ).forEach { (value, label) ->
+                            val selected = engine == value
+                            Text(
+                                label,
+                                color = if (selected) IdColor.White else IdColor.Neutral800,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .background(if (selected) IdColor.Accent else IdColor.Neutral200)
+                                    .clickable { onEngineChange(value) }
+                                    .padding(horizontal = 11.dp, vertical = 7.dp),
+                            )
+                        }
                     }
                 }
                 if (addingNew) {

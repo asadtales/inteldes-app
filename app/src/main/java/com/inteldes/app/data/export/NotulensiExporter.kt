@@ -41,13 +41,28 @@ object NotulensiExporter {
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }
 
-    fun shareIntent(uri: Uri, mimeType: String): Intent {
+    fun shareIntent(uri: Uri, mimeType: String, chooserTitle: String = "Bagikan notulensi"): Intent {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        return Intent.createChooser(send, "Bagikan notulensi")
+        return Intent.createChooser(send, chooserTitle)
+    }
+
+    /**
+     * Copies the recording's own audio file to a friendlier name under the shareable
+     * exports dir and returns a content:// Uri for it — for sharing the raw recording
+     * itself (e.g. to WhatsApp) or saving it out of the app, separate from exporting the
+     * generated notulensi text.
+     */
+    fun exportAudio(context: Context, recording: Recording): Uri {
+        val sourcePath = recording.audioFilePath ?: throw IllegalStateException("Rekaman ini tidak punya berkas audio.")
+        val source = File(sourcePath)
+        val extension = source.extension.ifBlank { "m4a" }
+        val file = File(exportDir(context), "${safeFileName(recording.title)}.$extension")
+        source.copyTo(file, overwrite = true)
+        return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }
 
     // ───────────────────────── plain text ─────────────────────────

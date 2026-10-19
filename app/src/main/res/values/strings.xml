@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">IntelDes Desa Tales</string>
+    <string name="shortcut_record_short">Rekam</string>
+    <string name="shortcut_record_long">Rekam rapat sekarang</string>
 </resources>

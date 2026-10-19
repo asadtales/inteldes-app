@@ -41,11 +41,22 @@ class AudioRecorderManager(private val appContext: Context) {
     private val _elapsedSec = MutableStateFlow(0)
     val elapsedSec: StateFlow<Int> = _elapsedSec
 
+    /** Bookmarked moments (in [elapsedSec] terms) — lives here, not in RecordViewModel, so a
+     * tap on the recording notification's "TANDAI" action (or the app process outliving a
+     * destroyed Activity while backgrounded) still lands in the same place the UI reads from. */
+    private val _marks = MutableStateFlow<List<Int>>(emptyList())
+    val marks: StateFlow<List<Int>> = _marks
+
     var outputFile: File? = null
         private set
 
     @Throws(IOException::class)
     fun start(): File {
+        // Idempotent: a session already in progress is returned as-is. Starting again used to
+        // create a second MediaRecorder over the first (never released), reset the timer and
+        // marks, and orphan the earlier file — which is what "continue the current recording"
+        // turned into whenever the record screen was reopened mid-recording.
+        outputFile?.let { if (_state.value != RecorderState.IDLE) return it }
         val dir = File(appContext.filesDir, "recordings").apply { mkdirs() }
         val file = File(dir, "rec_${System.currentTimeMillis()}.m4a")
         val mr = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -68,9 +79,15 @@ class AudioRecorderManager(private val appContext: Context) {
         outputFile = file
         _elapsedSec.value = 0
         _amplitudeHistory.value = List(WAVE_HISTORY) { 0 }
+        _marks.value = emptyList()
         _state.value = RecorderState.RECORDING
         startAmplitudeLoop()
         return file
+    }
+
+    fun addMark() {
+        if (_state.value == RecorderState.IDLE) return
+        _marks.value = _marks.value + _elapsedSec.value
     }
 
     fun pause() {
@@ -118,6 +135,7 @@ class AudioRecorderManager(private val appContext: Context) {
         _state.value = RecorderState.IDLE
         _amplitude.value = 0
         _elapsedSec.value = 0
+        _marks.value = emptyList()
     }
 
     private fun startAmplitudeLoop() {

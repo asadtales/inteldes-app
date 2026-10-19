@@ -12,8 +12,28 @@ android {
         applicationId = "com.inteldes.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
+
+        // arm64-v8a covers virtually every real device sold since ~2017 (incl. the
+        // Galaxy M51 this app is tested on); x86_64 is only here so the on-device
+        // Whisper path is testable on the Android Studio emulator.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags += ""
+                arguments += "-DANDROID_STL=c++_shared"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {

@@ -6,6 +6,7 @@ import com.inteldes.app.data.model.ActionItem
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.Decision
 import com.inteldes.app.data.model.Notulensi
+import com.inteldes.app.data.model.NotulensiDensity
 import com.inteldes.app.data.model.OutputLanguage
 import com.inteldes.app.data.model.Question
 import com.inteldes.app.data.model.QuestionStatus
@@ -127,12 +128,12 @@ fun NotulensiJson.toDomain(provider: AiProvider): Notulensi = Notulensi(
     actions = actions.map { ActionItem(it.task, it.pic, it.due, formatTimestamp(it.sourceTimestampSec)) },
 )
 
-fun buildTranscriptPrompt(meetingTitle: String, segments: List<TranscriptSegment>, densityDetailed: Boolean, outputLanguage: OutputLanguage = OutputLanguage.INDONESIA): String {
+fun buildTranscriptPrompt(meetingTitle: String, segments: List<TranscriptSegment>, density: NotulensiDensity, outputLanguage: OutputLanguage = OutputLanguage.INDONESIA): String {
     val transcriptText = segments.joinToString("\n") { "[${formatTimestamp(it.timestampSec)}] ${it.speaker}: ${it.text}" }
-    val densityNote = if (densityDetailed) {
-        "Buat notulensi bergaya DETAIL: sertakan lebih banyak poin bahasan dan konteks per butir."
-    } else {
-        "Buat notulensi bergaya RINGKAS: hanya poin-poin paling penting."
+    val densityNote = when (density) {
+        NotulensiDensity.RINGKAS -> "Buat notulensi bergaya RINGKAS: hanya poin-poin paling penting, satu kalimat pendek per butir, tanpa konteks tambahan."
+        NotulensiDensity.SEDANG -> "Buat notulensi bergaya SEDANG: poin-poin utama, masing-masing disertai satu-dua kalimat konteks singkat."
+        NotulensiDensity.DETAIL -> "Buat notulensi bergaya DETAIL: sertakan sebanyak mungkin poin bahasan, konteks pendukung, dan kutipan singkat relevan per butir."
     }
     return """
         Kamu adalah asisten yang menyusun notulensi rapat desa dari transkrip mentah.
