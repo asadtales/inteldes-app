@@ -6,11 +6,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inteldes.app.data.audio.AudioFileImporter
 import com.inteldes.app.data.audio.ImportedAudio
+import com.inteldes.app.data.model.NoteTemplate
 import com.inteldes.app.data.model.Recording
 import com.inteldes.app.data.model.RecordingKind
 import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.data.prefs.AppSettingsStore
 import com.inteldes.app.data.repository.RecordingRepository
+import com.inteldes.app.data.repository.TemplateChoices
+import com.inteldes.app.data.repository.TemplateRepository
 import com.inteldes.app.data.work.ProcessRecordingWorker
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +40,7 @@ class HomeViewModel(
     private val appContext: Context,
     private val repository: RecordingRepository,
     private val settingsStore: AppSettingsStore,
+    templateRepository: TemplateRepository,
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val filter = MutableStateFlow("Semua")
@@ -46,6 +50,9 @@ class HomeViewModel(
 
     private val uploadReadyChannel = Channel<String>(Channel.BUFFERED)
     val onUploadProcessed = uploadReadyChannel.receiveAsFlow()
+
+    val templateChoices: StateFlow<TemplateChoices> = templateRepository.observeChoices(settingsStore)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TemplateChoices.Initial)
 
     val filters = listOf("Semua", RecordingKind.MUSDES.label, RecordingKind.BPD.label, RecordingKind.BUMDES.label, RecordingKind.WARGA.label)
 
@@ -93,14 +100,14 @@ class HomeViewModel(
         pendingUpload.value = null
     }
 
-    fun confirmUpload(title: String, kind: RecordingKind) {
+    fun confirmUpload(title: String, kind: RecordingKind, template: NoteTemplate) {
         val audio = pendingUpload.value ?: return
         pendingUpload.value = null
         viewModelScope.launch {
             val engine = settingsStore.settings.first().defaultEngine
             val id = repository.createRecording(
                 title = title, kind = kind, durationSec = audio.durationSec,
-                audioFilePath = audio.file.absolutePath, audioMimeType = audio.mimeType, engine = engine,
+                audioFilePath = audio.file.absolutePath, audioMimeType = audio.mimeType, engine = engine, template = template,
             )
             ProcessRecordingWorker.enqueue(appContext, id)
             uploadReadyChannel.send(id)

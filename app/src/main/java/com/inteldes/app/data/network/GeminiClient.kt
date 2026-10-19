@@ -2,8 +2,10 @@ package com.inteldes.app.data.network
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
+import com.inteldes.app.data.model.NoteTemplate
 import com.inteldes.app.data.model.Notulensi
 import com.inteldes.app.data.model.TranscriptSegment
 import kotlinx.coroutines.Dispatchers
@@ -18,9 +20,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
  */
 class GeminiClient(private val apiKey: String, private val model: String = "gemini-3.1-pro-preview") {
 
-    suspend fun generateNotulensi(meetingTitle: String, segments: List<TranscriptSegment>, densityDetailed: Boolean): Notulensi =
+    suspend fun generateNotulensi(
+        meetingTitle: String,
+        segments: List<TranscriptSegment>,
+        densityDetailed: Boolean,
+        template: NoteTemplate,
+    ): Notulensi =
         withContext(Dispatchers.IO) {
-            val prompt = buildTranscriptPrompt(meetingTitle, segments, densityDetailed)
+            val prompt = buildTranscriptPrompt(meetingTitle, segments, densityDetailed, template)
             val body = JsonObject().apply {
                 add(
                     "contents",
@@ -37,14 +44,15 @@ class GeminiClient(private val apiKey: String, private val model: String = "gemi
                     "generationConfig",
                     JsonObject().apply {
                         addProperty("responseMimeType", "application/json")
-                        add("responseSchema", notulensiJsonSchema())
+                        add("responseSchema", toGeminiSchema(notulensiJsonSchema(template)))
                         addProperty("temperature", 0.4)
                     },
                 )
             }
             val text = callText(body)
-            val json = HttpClient.gson.fromJson(text, NotulensiJson::class.java)
-            json.toDomain(AiProvider.GEMINI)
+            val root = runCatching { JsonParser.parseString(text).asJsonObject }.getOrNull()
+                ?: throw ApiException("Gemini mengembalikan format yang tidak bisa dibaca.")
+            parseNotulensi(root, template, AiProvider.GEMINI)
         }
 
     suspend fun ask(question: String, transcript: List<TranscriptSegment>, notulensi: Notulensi?, history: List<ChatMessage>): String =

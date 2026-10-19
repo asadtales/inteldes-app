@@ -2,9 +2,9 @@ package com.inteldes.app.data.db
 
 import androidx.room.TypeConverter
 import com.inteldes.app.data.model.AiProvider
-import com.inteldes.app.data.model.QuestionStatus
 import com.inteldes.app.data.model.RecordingKind
 import com.inteldes.app.data.model.RecordingStatus
+import com.inteldes.app.data.model.SectionType
 import com.inteldes.app.data.model.WhisperEngine
 
 class Converters {
@@ -29,7 +29,7 @@ class Converters {
     fun toAiProvider(v: String?): AiProvider? = v?.let { AiProvider.valueOf(it) }
 
     @TypeConverter
-    fun fromQuestionStatus(v: QuestionStatus): String = v.name
+    fun fromSectionType(v: SectionType): String = v.name
     @TypeConverter
-    fun toQuestionStatus(v: String): QuestionStatus = QuestionStatus.valueOf(v)
+    fun toSectionType(v: String): SectionType = SectionType.valueOf(v)
 }

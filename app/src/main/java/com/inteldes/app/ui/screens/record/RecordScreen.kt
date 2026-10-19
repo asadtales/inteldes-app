@@ -5,6 +5,9 @@ import android.content.pm.PackageManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,8 +15,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -38,7 +45,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inteldes.app.data.audio.RecorderState
 import com.inteldes.app.data.model.WhisperEngine
+import com.inteldes.app.ui.components.PhotoImage
+import com.inteldes.app.ui.components.PhotoPickerButtons
 import com.inteldes.app.ui.components.RecordingDetailsDialog
+import com.inteldes.app.ui.components.rememberPhotoPicker
 import com.inteldes.app.ui.theme.IdColor
 import com.inteldes.app.ui.util.formatRecordTimer
 
@@ -71,6 +81,8 @@ fun RecordScreen(
     LaunchedEffect(Unit) {
         vm.onRecordingReady.collect { id -> onRecordingReady(id) }
     }
+
+    val photoPicker = rememberPhotoPicker { uri, temporary -> vm.addPhoto(uri, temporary) }
 
     var showSaveDialog by remember { mutableStateOf(false) }
 
@@ -137,15 +149,38 @@ fun RecordScreen(
             }
         }
 
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 20.dp, vertical = 14.dp)) {
-            Text("TRANSKRIP", color = IdColor.Neutral500, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp)
-            Spacer(Modifier.height(9.dp))
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+        ) {
             Text(
-                "Transkrip lengkap dengan label pembicara akan muncul setelah rekaman selesai diproses.",
-                color = IdColor.Neutral400,
-                fontSize = 13.sp,
-                lineHeight = 20.sp,
+                "FOTO DOKUMENTASI (${state.photos.size})",
+                color = IdColor.Neutral500, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp,
             )
+            Spacer(Modifier.height(9.dp))
+            PhotoPickerButtons(photoPicker, onDark = true)
+            Spacer(Modifier.height(10.dp))
+            if (state.photos.isEmpty()) {
+                Text(
+                    "Foto yang ditambahkan saat rapat akan masuk ke bagian Dokumentasi di notulensi, lengkap dengan menit pengambilannya.",
+                    color = IdColor.Neutral400,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                )
+            } else {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    state.photos.forEach { photo -> PendingPhotoThumb(photo, onRemove = { vm.removePhoto(photo) }) }
+                }
+            }
+            state.photoError?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = IdColor.Accent, fontSize = 11.5.sp)
+            }
         }
 
         Row(modifier = Modifier.padding(top = 12.dp)) {
@@ -179,10 +214,11 @@ fun RecordScreen(
 
     if (showSaveDialog) {
         RecordingDetailsDialog(
+            choices = state.templateChoices,
             onDismiss = { showSaveDialog = false },
-            onConfirm = { title, kind ->
+            onConfirm = { title, kind, template ->
                 showSaveDialog = false
-                vm.stopAndProcess(title, kind)
+                vm.stopAndProcess(title, kind, template)
             },
         )
     }
@@ -237,3 +273,27 @@ private fun drawWaveform(history: List<Int>, animated: Boolean, scope: DrawScope
     }
 }
 
+@Composable
+private fun PendingPhotoThumb(photo: PendingPhoto, onRemove: () -> Unit) {
+    Box(modifier = Modifier.size(76.dp)) {
+        PhotoImage(photo.file.absolutePath, Modifier.fillMaxSize())
+        Text(
+            formatRecordTimer(photo.offsetSec),
+            color = IdColor.White,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.BottomStart).background(IdColor.Neutral900.copy(alpha = 0.75f)).padding(horizontal = 4.dp, vertical = 2.dp),
+        )
+        Icon(
+            Icons.Filled.Close,
+            contentDescription = "Hapus foto",
+            tint = IdColor.White,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .background(IdColor.Neutral900.copy(alpha = 0.75f))
+                .clickable(onClick = onRemove)
+                .padding(3.dp)
+                .size(14.dp),
+        )
+    }
+}

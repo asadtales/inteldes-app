@@ -2,6 +2,7 @@ package com.inteldes.app.data.network
 
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
+import com.inteldes.app.data.model.NoteTemplate
 import com.inteldes.app.data.model.Notulensi
 import com.inteldes.app.data.model.TranscriptSegment
 import com.inteldes.app.data.prefs.SecurePrefs
@@ -43,11 +44,12 @@ class NotulensiGenerator(private val securePrefs: SecurePrefs) {
         meetingTitle: String,
         segments: List<TranscriptSegment>,
         densityDetailed: Boolean,
+        template: NoteTemplate,
     ): Notulensi {
         val resolved = resolve(provider, durationSec)
         return when (val client = clientFor(resolved)) {
-            is GeminiClient -> client.generateNotulensi(meetingTitle, segments, densityDetailed)
-            is ClaudeClient -> client.generateNotulensi(meetingTitle, segments, densityDetailed)
+            is GeminiClient -> client.generateNotulensi(meetingTitle, segments, densityDetailed, template)
+            is ClaudeClient -> client.generateNotulensi(meetingTitle, segments, densityDetailed, template)
             else -> error("unreachable")
         }
     }

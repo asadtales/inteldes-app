@@ -20,6 +20,7 @@ import com.inteldes.app.ui.screens.home.HomeScreen
 import com.inteldes.app.ui.screens.processing.ProcessingScreen
 import com.inteldes.app.ui.screens.record.RecordScreen
 import com.inteldes.app.ui.screens.settings.SettingsScreen
+import com.inteldes.app.ui.screens.templates.TemplatesScreen
 
 @Composable
 fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNavController()) {
@@ -91,7 +92,15 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
         }
 
         composable(Routes.Settings.route) {
-            SettingsScreen(factory = appFactory, onBack = { navController.popBackStack() })
+            SettingsScreen(
+                factory = appFactory,
+                onBack = { navController.popBackStack() },
+                onOpenTemplates = { navController.navigate(Routes.Templates.route) },
+            )
+        }
+
+        composable(Routes.Templates.route) {
+            TemplatesScreen(factory = appFactory, onBack = { navController.popBackStack() })
         }
     }
 }

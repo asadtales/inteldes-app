@@ -1,105 +1,120 @@
 package com.inteldes.app.data.network
 
 import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.google.gson.JsonPrimitive
 import com.inteldes.app.data.model.ActionItem
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.Decision
+import com.inteldes.app.data.model.NoteSection
+import com.inteldes.app.data.model.NoteTemplate
 import com.inteldes.app.data.model.Notulensi
 import com.inteldes.app.data.model.Question
 import com.inteldes.app.data.model.QuestionStatus
+import com.inteldes.app.data.model.SectionContent
+import com.inteldes.app.data.model.SectionType
 import com.inteldes.app.data.model.Topic
 import com.inteldes.app.data.model.TranscriptSegment
 
+/** Property name the AI fills for the template's [index]-th section. */
+fun sectionKey(index: Int): String = "section_${index + 1}"
+
+private fun obj(build: JsonObject.() -> Unit) = JsonObject().apply(build)
+private fun scalar(type: String, description: String) = obj { addProperty("type", type); addProperty("description", description) }
+private fun arraySchema(items: JsonObject, description: String) =
+    obj { addProperty("type", "array"); addProperty("description", description); add("items", items) }
+private fun requiredNames(names: List<String>) = JsonArray().apply { names.forEach { add(it) } }
+
+private fun topicItem() = obj {
+    addProperty("type", "object")
+    add(
+        "properties",
+        obj {
+            add("timestampSec", scalar("integer", "Detik sejak awal rapat saat topik ini mulai dibahas"))
+            add("title", scalar("string", "Judul singkat topik, 2-6 kata"))
+            add("body", scalar("string", "Ringkasan 1-2 kalimat isi pembahasan topik ini"))
+        },
+    )
+    add("required", requiredNames(listOf("timestampSec", "title", "body")))
+}
+
+private fun questionItem() = obj {
+    addProperty("type", "object")
+    add(
+        "properties",
+        obj {
+            add("question", scalar("string", "Pertanyaan yang muncul namun belum atau sebagian terjawab"))
+            add(
+                "status",
+                obj {
+                    addProperty("type", "string")
+                    add("enum", requiredNames(QuestionStatus.entries.map { it.label }))
+                },
+            )
+            add("note", scalar("string", "Konteks singkat: siapa yang bertanya / kenapa belum tuntas"))
+        },
+    )
+    add("required", requiredNames(listOf("question", "status", "note")))
+}
+
+private fun actionItem() = obj {
+    addProperty("type", "object")
+    add(
+        "properties",
+        obj {
+            add("task", scalar("string", "Tugas konkret yang harus dikerjakan"))
+            add("pic", scalar("string", "Nama penanggung jawab (PIC) yang disebut dalam transkrip"))
+            add("due", scalar("string", "Tenggat dalam bahasa natural, mis. '12 Okt', bila disebut"))
+            add("sourceTimestampSec", scalar("integer", "Detik pada transkrip tempat tugas ini disebutkan"))
+        },
+    )
+    add("required", requiredNames(listOf("task", "pic", "due", "sourceTimestampSec")))
+}
+
+private fun schemaFor(type: SectionType, description: String): JsonObject = when (type) {
+    SectionType.PARAGRAPH -> scalar("string", description)
+    SectionType.BULLETS -> arraySchema(scalar("string", "Satu poin, satu kalimat"), description)
+    SectionType.TOPICS -> arraySchema(topicItem(), description)
+    SectionType.DECISIONS -> arraySchema(scalar("string", "Satu keputusan, kalimat lengkap"), description)
+    SectionType.QUESTIONS -> arraySchema(questionItem(), description)
+    SectionType.ACTIONS -> arraySchema(actionItem(), description)
+}
+
 /**
- * One JSON Schema (JSON-Schema-ish; a subset both Gemini's `responseSchema` and
- * Claude's tool `input_schema` accept) describing the notulensi shape the prototype
- * renders: ringkasan, poin bahasan, keputusan, poin pertanyaan, action item.
+ * JSON Schema for one note: a short `summary` plus one property per template section, shaped by the
+ * section's type. Both Gemini's `responseSchema` and Claude's tool `input_schema` accept this subset.
  */
-fun notulensiJsonSchema(): JsonObject {
-    fun obj(build: JsonObject.() -> Unit) = JsonObject().apply(build)
-    fun strProp(desc: String) = obj { addProperty("type", "string"); addProperty("description", desc) }
-    fun intProp(desc: String) = obj { addProperty("type", "integer"); addProperty("description", desc) }
-
-    val topicItem = obj {
-        addProperty("type", "object")
-        add(
-            "properties",
-            obj {
-                add("timestampSec", intProp("Detik sejak awal rapat saat topik ini mulai dibahas"))
-                add("title", strProp("Judul singkat topik, 2-6 kata"))
-                add("body", strProp("Ringkasan 1-2 kalimat isi pembahasan topik ini"))
-            },
-        )
-        add("required", JsonArray().apply { add("timestampSec"); add("title"); add("body") })
+fun notulensiJsonSchema(template: NoteTemplate): JsonObject {
+    val properties = JsonObject()
+    properties.add("summary", scalar("string", "Ringkasan rapat 1-3 kalimat, dipakai sebagai pratinjau singkat"))
+    template.sections.forEachIndexed { i, s ->
+        properties.add(sectionKey(i), schemaFor(s.type, "${s.title}: ${s.instruction}"))
     }
-    val decisionItem = obj {
-        addProperty("type", "object")
-        add("properties", obj { add("text", strProp("Satu keputusan yang disepakati forum, kalimat lengkap")) })
-        add("required", JsonArray().apply { add("text") })
-    }
-    val questionItem = obj {
-        addProperty("type", "object")
-        add(
-            "properties",
-            obj {
-                add("question", strProp("Pertanyaan yang muncul namun belum/sebagian terjawab"))
-                add(
-                    "status",
-                    obj {
-                        addProperty("type", "string")
-                        add(
-                            "enum",
-                            JsonArray().apply { add("Belum terjawab"); add("Terjawab sebagian"); add("Terjawab") },
-                        )
-                    },
-                )
-                add("note", strProp("Konteks singkat: siapa yang bertanya / kenapa belum tuntas"))
-            },
-        )
-        add("required", JsonArray().apply { add("question"); add("status"); add("note") })
-    }
-    val actionItem = obj {
-        addProperty("type", "object")
-        add(
-            "properties",
-            obj {
-                add("task", strProp("Tugas konkret yang harus dikerjakan"))
-                add("pic", strProp("Nama penanggung jawab (PIC) yang disebut dalam transkrip"))
-                add("due", strProp("Tenggat dalam bahasa natural, mis. '12 Okt', bila disebut; jika tidak, perkirakan wajar"))
-                add("sourceTimestampSec", intProp("Detik pada transkrip tempat tugas ini disebutkan"))
-            },
-        )
-        add("required", JsonArray().apply { add("task"); add("pic"); add("due"); add("sourceTimestampSec") })
-    }
-
+    val names = listOf("summary") + template.sections.indices.map { sectionKey(it) }
     return obj {
         addProperty("type", "object")
-        add(
-            "properties",
-            obj {
-                add("summary", strProp("Ringkasan rapat 2-4 kalimat, bahasa Indonesia formal"))
-                add("topics", obj { addProperty("type", "array"); add("items", topicItem) })
-                add("decisions", obj { addProperty("type", "array"); add("items", decisionItem) })
-                add("questions", obj { addProperty("type", "array"); add("items", questionItem) })
-                add("actions", obj { addProperty("type", "array"); add("items", actionItem) })
-            },
-        )
-        add("required", JsonArray().apply { add("summary"); add("topics"); add("decisions"); add("questions"); add("actions") })
+        add("properties", properties)
+        add("required", requiredNames(names))
     }
 }
 
-data class NotulensiJson(
-    val summary: String,
-    val topics: List<TopicJson> = emptyList(),
-    val decisions: List<DecisionJson> = emptyList(),
-    val questions: List<QuestionJson> = emptyList(),
-    val actions: List<ActionJson> = emptyList(),
-)
-data class TopicJson(val timestampSec: Int, val title: String, val body: String)
-data class DecisionJson(val text: String)
-data class QuestionJson(val question: String, val status: String, val note: String)
-data class ActionJson(val task: String, val pic: String, val due: String, val sourceTimestampSec: Int)
+/** Gemini's `responseSchema` uses upper-case type names (STRING, OBJECT, ...); everything else is shared. */
+fun toGeminiSchema(schema: JsonObject): JsonObject {
+    val copy = JsonObject()
+    for ((key, value) in schema.entrySet()) {
+        copy.add(key, upperCaseTypes(key, value))
+    }
+    return copy
+}
+
+private fun upperCaseTypes(key: String, element: JsonElement): JsonElement = when {
+    key == "type" && element.isJsonPrimitive && element.asJsonPrimitive.isString ->
+        JsonPrimitive(element.asString.uppercase())
+    element.isJsonObject -> toGeminiSchema(element.asJsonObject)
+    element.isJsonArray -> JsonArray().apply { element.asJsonArray.forEach { add(upperCaseTypes("", it)) } }
+    else -> element
+}
 
 fun formatTimestamp(sec: Int): String {
     val m = sec / 60
@@ -107,42 +122,110 @@ fun formatTimestamp(sec: Int): String {
     return "%02d:%02d".format(m, s)
 }
 
-fun NotulensiJson.toDomain(provider: AiProvider): Notulensi = Notulensi(
-    summary = summary,
-    provider = provider,
-    topics = topics.map { Topic(formatTimestamp(it.timestampSec), it.timestampSec, it.title, it.body) },
-    decisions = decisions.mapIndexed { i, d -> Decision("%02d".format(i + 1), d.text) },
-    questions = questions.map {
-        Question(
-            it.question,
-            when (it.status) {
-                "Terjawab" -> QuestionStatus.ANSWERED
-                "Terjawab sebagian" -> QuestionStatus.PARTIAL
-                else -> QuestionStatus.UNANSWERED
-            },
-            it.note,
-        )
-    },
-    actions = actions.map { ActionItem(it.task, it.pic, it.due, formatTimestamp(it.sourceTimestampSec)) },
-)
+// ───────────────────────── parsing the AI's answer ─────────────────────────
 
-fun buildTranscriptPrompt(meetingTitle: String, segments: List<TranscriptSegment>, densityDetailed: Boolean): String {
+private fun JsonElement?.textOrEmpty(): String =
+    if (this != null && isJsonPrimitive) asString.trim() else ""
+
+private fun JsonObject.str(key: String): String = get(key).textOrEmpty()
+
+private fun JsonObject.int(key: String): Int = runCatching { get(key)?.asInt }.getOrNull() ?: 0
+
+private fun JsonElement.objectOrNull(): JsonObject? = if (isJsonObject) asJsonObject else null
+
+/** Reads a list of strings; tolerates a single multi-line string or `{ "text": ... }` objects. */
+private fun textItems(el: JsonElement?): List<String> = when {
+    el == null || el.isJsonNull -> emptyList()
+    el.isJsonArray -> el.asJsonArray.mapNotNull { item ->
+        when {
+            item.isJsonPrimitive -> item.asString
+            item.isJsonObject -> item.asJsonObject.str("text")
+            else -> null
+        }
+    }.map { it.trim() }.filter { it.isNotEmpty() }
+    el.isJsonPrimitive -> el.asString.lines().map { it.trim().trimStart('-', '•', '*').trim() }.filter { it.isNotEmpty() }
+    else -> emptyList()
+}
+
+private fun questionStatus(raw: String): QuestionStatus {
+    val s = raw.lowercase()
+    return when {
+        "sebagian" in s -> QuestionStatus.PARTIAL
+        s == "terjawab" -> QuestionStatus.ANSWERED
+        else -> QuestionStatus.UNANSWERED
+    }
+}
+
+private fun parseContent(type: SectionType, el: JsonElement?): SectionContent {
+    val objects = if (el != null && el.isJsonArray) el.asJsonArray.mapNotNull { it.objectOrNull() } else emptyList()
+    return when (type) {
+        SectionType.PARAGRAPH -> SectionContent.Paragraph(el.textOrEmpty())
+        SectionType.BULLETS -> SectionContent.Bullets(textItems(el))
+        SectionType.DECISIONS -> SectionContent.Decisions(
+            textItems(el).mapIndexed { i, text -> Decision("%02d".format(i + 1), text) },
+        )
+        SectionType.TOPICS -> SectionContent.Topics(
+            objects.map { o ->
+                val sec = o.int("timestampSec")
+                Topic(formatTimestamp(sec), sec, o.str("title"), o.str("body"))
+            },
+        )
+        SectionType.QUESTIONS -> SectionContent.Questions(
+            objects.map { o -> Question(o.str("question"), questionStatus(o.str("status")), o.str("note")) },
+        )
+        SectionType.ACTIONS -> SectionContent.Actions(
+            objects.map { o ->
+                ActionItem(
+                    task = o.str("task"),
+                    pic = o.str("pic").ifBlank { "Belum ditentukan" },
+                    due = o.str("due").ifBlank { "Belum ditentukan" },
+                    sourceTimestampLabel = formatTimestamp(o.int("sourceTimestampSec")),
+                )
+            },
+        )
+    }
+}
+
+/** Turns the model's JSON (shaped by [notulensiJsonSchema]) into a [Notulensi] laid out like [template]. */
+fun parseNotulensi(root: JsonObject, template: NoteTemplate, provider: AiProvider): Notulensi =
+    Notulensi(
+        summary = root.str("summary"),
+        provider = provider,
+        sections = template.sections.mapIndexed { i, s ->
+            NoteSection(s.title, parseContent(s.type, root.get(sectionKey(i))))
+        },
+    )
+
+// ───────────────────────── prompt ─────────────────────────
+
+fun buildTranscriptPrompt(
+    meetingTitle: String,
+    segments: List<TranscriptSegment>,
+    densityDetailed: Boolean,
+    template: NoteTemplate,
+): String {
     val transcriptText = segments.joinToString("\n") { "[${formatTimestamp(it.timestampSec)}] ${it.speaker}: ${it.text}" }
     val densityNote = if (densityDetailed) {
-        "Buat notulensi bergaya DETAIL: sertakan lebih banyak poin bahasan dan konteks per butir."
+        "Gaya DETAIL: sertakan lebih banyak butir dan konteks pada tiap bagian."
     } else {
-        "Buat notulensi bergaya RINGKAS: hanya poin-poin paling penting."
+        "Gaya RINGKAS: hanya butir-butir paling penting pada tiap bagian."
     }
+    val sectionList = template.sections.mapIndexed { i, s ->
+        "${i + 1}. ${sectionKey(i)} — ${s.title} (${s.type.label}): ${s.instruction}"
+    }.joinToString("\n")
     return """
-        Kamu adalah asisten yang menyusun notulensi rapat desa dari transkrip mentah.
+        Kamu adalah asisten yang menyusun dokumen rapat desa dari transkrip mentah.
         Judul rapat: "$meetingTitle".
+        Format dokumen: "${template.name}" — ${template.description}
         $densityNote
-        Tulis semua isi (summary, judul topik, teks) dalam Bahasa Indonesia formal.
-        Kelompokkan hasil menjadi empat blok sesuai skema yang diberikan: poin bahasan (urut waktu),
-        keputusan yang disepakati forum, poin pertanyaan yang belum/sebagian terjawab, dan action item
-        dengan PIC serta tenggat bila disebutkan dalam transkrip. Jangan mengarang nama PIC atau tenggat
-        yang tidak ada dasarnya di transkrip — jika tidak disebutkan, gunakan PIC "Belum ditentukan" dan
-        due "Belum ditentukan".
+        Tulis semua isi dalam Bahasa Indonesia formal.
+        Isi field "summary" dengan ringkasan rapat 1-3 kalimat (dipakai sebagai pratinjau singkat).
+        Lalu isi setiap bagian dokumen berikut sesuai panduannya:
+        $sectionList
+
+        Jangan mengarang nama, PIC, tenggat, tanggal, atau tempat yang tidak ada dasarnya di transkrip.
+        Jika suatu hal tidak disebutkan, tulis "Belum ditentukan" atau "Tidak disebutkan"; jika sebuah bagian
+        memang tidak ada isinya, kembalikan daftar kosong atau teks kosong untuk bagian itu.
 
         Transkrip (format "[mm:ss] Pembicara: ucapan"):
         $transcriptText

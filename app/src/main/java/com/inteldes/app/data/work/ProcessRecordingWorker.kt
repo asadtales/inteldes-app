@@ -61,12 +61,14 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
             setProgress(workDataOf(KEY_STEP to ProcessingStep.SUMMARIZE.name))
             val current = app.settingsStore.settings.first()
             val generator = NotulensiGenerator(app.securePrefs)
+            val template = app.templateRepository.find(recording.templateId)
             val notulensi = generator.generateNotulensi(
                 provider = current.provider,
                 durationSec = recording.durationSec,
                 meetingTitle = recording.title,
                 segments = transcriptResult.segments,
                 densityDetailed = current.densityDetailed,
+                template = template,
             )
 
             setProgress(workDataOf(KEY_STEP to ProcessingStep.LINK.name))

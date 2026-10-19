@@ -7,6 +7,7 @@ import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.data.prefs.AppSettings
 import com.inteldes.app.data.prefs.AppSettingsStore
 import com.inteldes.app.data.prefs.SecurePrefs
+import com.inteldes.app.data.repository.TemplateRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,17 +25,19 @@ data class SettingsUiState(
     val settings: AppSettings = AppSettings(),
     val advancedOpen: Boolean = false,
     val keys: KeyFields = KeyFields("", "", ""),
+    val defaultTemplateName: String = "Notulensi Standar",
 )
 
 class SettingsViewModel(
     private val store: AppSettingsStore,
     private val securePrefs: SecurePrefs,
+    templateRepository: TemplateRepository,
 ) : ViewModel() {
 
     private val advancedOpen = MutableStateFlow(false)
     private val keysTick = MutableStateFlow(0)
 
-    val uiState: StateFlow<SettingsUiState> = combine(store.settings, advancedOpen, keysTick) { settings, open, _ ->
+    val uiState: StateFlow<SettingsUiState> = combine(store.settings, advancedOpen, keysTick, templateRepository.observeChoices(store)) { settings, open, _, choices ->
         SettingsUiState(
             settings = settings,
             advancedOpen = open,
@@ -43,6 +46,7 @@ class SettingsViewModel(
                 claudeKey = securePrefs.claudeApiKey.orEmpty(),
                 whisperKey = securePrefs.whisperCloudApiKey.orEmpty(),
             ),
+            defaultTemplateName = choices.default.name,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
 

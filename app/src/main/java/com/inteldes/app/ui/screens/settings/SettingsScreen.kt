@@ -43,7 +43,7 @@ import com.inteldes.app.ui.components.Pill
 import com.inteldes.app.ui.theme.IdColor
 
 @Composable
-fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack: () -> Unit) {
+fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack: () -> Unit, onOpenTemplates: () -> Unit) {
     val vm: SettingsViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
 
@@ -95,6 +95,17 @@ fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack
                         )
                     }
                 }
+
+                Spacer(Modifier.height(20.dp))
+                HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
+                Spacer(Modifier.height(16.dp))
+
+                KickerLabel("Template dokumen", modifier = Modifier.padding(bottom = 10.dp))
+                SettingRow(
+                    "Template bawaan",
+                    "Bentuk dokumen hasil AI: notulensi, berita acara, atau template buatan sendiri",
+                    state.defaultTemplateName + "  ›",
+                ) { onOpenTemplates() }
 
                 Spacer(Modifier.height(20.dp))
                 HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)

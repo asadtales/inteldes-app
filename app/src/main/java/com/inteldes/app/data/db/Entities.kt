@@ -5,9 +5,10 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.inteldes.app.data.model.AiProvider
-import com.inteldes.app.data.model.QuestionStatus
+import com.inteldes.app.data.model.BuiltInTemplates
 import com.inteldes.app.data.model.RecordingKind
 import com.inteldes.app.data.model.RecordingStatus
+import com.inteldes.app.data.model.SectionType
 import com.inteldes.app.data.model.WhisperEngine
 import java.util.UUID
 
@@ -23,67 +24,51 @@ data class RecordingEntity(
     val status: RecordingStatus,
     val speakerCount: Int,
     val engine: WhisperEngine,
+    val templateId: String = BuiltInTemplates.STANDARD_ID,
+    val templateName: String = BuiltInTemplates.standard.name,
     val summary: String? = null,
     val provider: AiProvider? = null,
     val notesGeneratedAt: Long? = null,
     val errorMessage: String? = null,
 )
 
+/** One generated section of a note; [payload] is JSON shaped by [type] (see [SectionCodec]). */
 @Entity(
-    tableName = "topics",
+    tableName = "note_sections",
     foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("recordingId")],
 )
-data class TopicEntity(
+data class NoteSectionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val recordingId: String,
     val orderIndex: Int,
-    val timestampLabel: String,
-    val timestampSec: Int,
     val title: String,
-    val body: String,
+    val type: SectionType,
+    val payload: String,
+)
+
+/** User-created templates only; built-ins live in code ([BuiltInTemplates]). */
+@Entity(tableName = "templates")
+data class TemplateEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val description: String,
+    val sectionsJson: String,
+    val createdAt: Long,
 )
 
 @Entity(
-    tableName = "decisions",
+    tableName = "photos",
     foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("recordingId")],
 )
-data class DecisionEntity(
+data class PhotoEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val recordingId: String,
-    val orderIndex: Int,
-    val text: String,
-)
-
-@Entity(
-    tableName = "questions",
-    foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
-    indices = [Index("recordingId")],
-)
-data class QuestionEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val recordingId: String,
-    val orderIndex: Int,
-    val question: String,
-    val status: QuestionStatus,
-    val note: String,
-)
-
-@Entity(
-    tableName = "action_items",
-    foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
-    indices = [Index("recordingId")],
-)
-data class ActionItemEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val recordingId: String,
-    val orderIndex: Int,
-    val task: String,
-    val pic: String,
-    val due: String,
-    val sourceTimestampLabel: String,
-    val done: Boolean = false,
+    val filePath: String,
+    val takenAtSec: Int?,
+    val caption: String = "",
+    val createdAt: Long,
 )
 
 @Entity(

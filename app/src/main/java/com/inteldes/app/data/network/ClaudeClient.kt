@@ -4,6 +4,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
+import com.inteldes.app.data.model.NoteTemplate
 import com.inteldes.app.data.model.Notulensi
 import com.inteldes.app.data.model.TranscriptSegment
 import kotlinx.coroutines.Dispatchers
@@ -15,12 +16,17 @@ import okhttp3.RequestBody.Companion.toRequestBody
 /** Direct on-device calls to the Claude Messages API using the village's own BYO API key. */
 class ClaudeClient(private val apiKey: String, private val model: String = "claude-sonnet-5") {
 
-    suspend fun generateNotulensi(meetingTitle: String, segments: List<TranscriptSegment>, densityDetailed: Boolean): Notulensi =
+    suspend fun generateNotulensi(
+        meetingTitle: String,
+        segments: List<TranscriptSegment>,
+        densityDetailed: Boolean,
+        template: NoteTemplate,
+    ): Notulensi =
         withContext(Dispatchers.IO) {
-            val prompt = buildTranscriptPrompt(meetingTitle, segments, densityDetailed)
+            val prompt = buildTranscriptPrompt(meetingTitle, segments, densityDetailed, template)
             val body = JsonObject().apply {
                 addProperty("model", model)
-                addProperty("max_tokens", 4096)
+                addProperty("max_tokens", 8192)
                 add(
                     "tools",
                     JsonArray().apply {
@@ -28,7 +34,7 @@ class ClaudeClient(private val apiKey: String, private val model: String = "clau
                             JsonObject().apply {
                                 addProperty("name", "submit_notulensi")
                                 addProperty("description", "Kirim hasil notulensi rapat yang sudah terstruktur.")
-                                add("input_schema", notulensiJsonSchema())
+                                add("input_schema", notulensiJsonSchema(template))
                             },
                         )
                     },
@@ -56,8 +62,8 @@ class ClaudeClient(private val apiKey: String, private val model: String = "clau
                 val parsed = HttpClient.gson.fromJson(raw, ClaudeResponse::class.java)
                 val toolUse = parsed.content?.firstOrNull { it.type == "tool_use" }
                     ?: throw ApiException("Claude tidak mengembalikan notulensi terstruktur.")
-                val json = HttpClient.gson.fromJson(toolUse.input, NotulensiJson::class.java)
-                json.toDomain(AiProvider.CLAUDE)
+                val root = toolUse.input ?: throw ApiException("Claude tidak mengembalikan notulensi terstruktur.")
+                parseNotulensi(root, template, AiProvider.CLAUDE)
             }
         }
 

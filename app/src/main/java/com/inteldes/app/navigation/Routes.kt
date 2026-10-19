@@ -10,4 +10,5 @@ sealed class Routes(val route: String) {
         fun of(id: String, tab: String = "notes") = "detail/$id?tab=$tab"
     }
     data object Settings : Routes("settings")
+    data object Templates : Routes("templates")
 }

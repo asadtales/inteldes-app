@@ -42,16 +42,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.inteldes.app.data.model.ActionItem
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
-import com.inteldes.app.data.model.Decision
-import com.inteldes.app.data.model.Question
 import com.inteldes.app.data.model.RecordingStatus
-import com.inteldes.app.data.model.Topic
 import com.inteldes.app.data.model.TranscriptSegment
 import com.inteldes.app.ui.components.KickerLabel
-import com.inteldes.app.ui.components.Pill
 import com.inteldes.app.ui.theme.IdColor
 import com.inteldes.app.ui.util.formatDuration
 import com.inteldes.app.ui.util.formatRecordTimer
@@ -110,11 +105,18 @@ fun DetailScreen(
                 onOpenProcessing = { onOpenProcessing(recording.id) },
             )
             state.tab == DetailTab.NOTES -> NotesTab(
+                recording = recording,
                 notulensi = state.notulensi,
+                photos = state.photos,
+                templates = state.templates,
                 regenerating = state.regenerating,
                 error = state.error,
-                onRegenerate = vm::regenerateNotulensi,
+                onRegenerate = { vm.regenerateNotulensi() },
+                onPickTemplate = { vm.regenerateNotulensi(it) },
                 onChangeAgent = onGoSettings,
+                onAddPhoto = vm::addPhoto,
+                onUpdateCaption = vm::updatePhotoCaption,
+                onDeletePhoto = vm::deletePhoto,
                 modifier = Modifier.weight(1f),
             )
             state.tab == DetailTab.SCRIPT -> ScriptTab(
@@ -135,7 +137,7 @@ fun DetailScreen(
     }
 }
 
-private fun providerBadge(provider: AiProvider?): String = when (provider) {
+internal fun providerBadge(provider: AiProvider?): String = when (provider) {
     AiProvider.GEMINI -> "Gemini 2.5 Pro"
     AiProvider.CLAUDE -> "Claude Sonnet"
     else -> "Agent AI"
@@ -188,149 +190,6 @@ private fun NotDoneState(statusIsWorking: Boolean, errorMessage: String?, onOpen
             fontSize = 12.sp,
             modifier = Modifier.background(IdColor.Accent).clickable(onClick = onOpenProcessing).padding(horizontal = 16.dp, vertical = 12.dp),
         )
-    }
-}
-
-// ───────────────────────── Notulensi tab (1A — continuous document) ─────────────────────────
-
-@Composable
-private fun NotesTab(
-    notulensi: com.inteldes.app.data.model.Notulensi?,
-    regenerating: Boolean,
-    error: String?,
-    onRegenerate: () -> Unit,
-    onChangeAgent: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    if (notulensi == null) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Notulensi belum tersedia.", color = IdColor.Neutral700, fontSize = 13.sp)
-        }
-        return
-    }
-    LazyColumn(modifier = modifier.padding(horizontal = 18.dp)) {
-        item {
-            Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Pill(providerBadge(notulensi.provider), IdColor.Accent, IdColor.White)
-                Spacer(Modifier.width(8.dp))
-                Text("disusun oleh agent AI", color = IdColor.Neutral600, fontSize = 11.sp)
-            }
-            Spacer(Modifier.height(16.dp))
-            KickerLabel("Ringkasan")
-            Spacer(Modifier.height(8.dp))
-            Text(notulensi.summary, fontSize = 14.sp, lineHeight = 22.sp)
-            Spacer(Modifier.height(18.dp))
-            HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
-            Spacer(Modifier.height(2.dp))
-        }
-        item {
-            KickerLabel("Poin bahasan", modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
-        }
-        items(notulensi.topics) { t -> TopicRow(t) }
-        item {
-            KickerLabel("Keputusan", modifier = Modifier.padding(top = 22.dp, bottom = 6.dp))
-        }
-        items(notulensi.decisions) { d -> DecisionRow(d) }
-        item {
-            KickerLabel("Poin pertanyaan", modifier = Modifier.padding(top = 22.dp, bottom = 6.dp))
-        }
-        items(notulensi.questions) { q -> QuestionRow(q) }
-        item {
-            KickerLabel("Action item", modifier = Modifier.padding(top = 22.dp, bottom = 10.dp))
-        }
-        items(notulensi.actions) { a -> ActionRow(a) }
-        item {
-            error?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(it, color = IdColor.Accent, fontSize = 12.sp)
-            }
-            Row(modifier = Modifier.padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    if (regenerating) "MENYUSUN…" else "SUSUN ULANG",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = IdColor.Text,
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(IdColor.Bg)
-                        .let { m -> if (!regenerating) m.clickable(onClick = onRegenerate) else m }
-                        .padding(vertical = 12.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-                Text(
-                    "GANTI AGENT",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = IdColor.Bg,
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(IdColor.Neutral900)
-                        .clickable(onClick = onChangeAgent)
-                        .padding(vertical = 12.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TopicRow(t: Topic) {
-    Row(modifier = Modifier.padding(vertical = 11.dp)) {
-        Text(t.timestampLabel, color = IdColor.Accent, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, modifier = Modifier.width(46.dp))
-        Column {
-            Text(t.title, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-            Spacer(Modifier.height(3.dp))
-            Text(t.body, fontSize = 13.sp, color = IdColor.Neutral800, lineHeight = 19.sp)
-        }
-    }
-    HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
-}
-
-@Composable
-private fun DecisionRow(d: Decision) {
-    Row(modifier = Modifier.padding(vertical = 11.dp)) {
-        Text(d.number, color = IdColor.Accent, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, modifier = Modifier.width(30.dp))
-        Text(d.text, fontSize = 13.5.sp, lineHeight = 19.sp)
-    }
-    HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
-}
-
-@Composable
-private fun QuestionRow(q: Question) {
-    Column(modifier = Modifier.padding(vertical = 11.dp)) {
-        Row {
-            Text("?", color = IdColor.Accent, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, modifier = Modifier.width(23.dp))
-            Text(q.question, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, lineHeight = 19.sp)
-        }
-        Row(modifier = Modifier.padding(start = 23.dp, top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-            Pill(
-                q.status.label,
-                background = IdColor.Bg,
-                contentColor = IdColor.Neutral700,
-                bordered = true,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(q.note, color = IdColor.Neutral700, fontSize = 11.5.sp)
-        }
-    }
-    HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
-}
-
-@Composable
-private fun ActionRow(a: ActionItem) {
-    Column(modifier = Modifier.background(IdColor.Neutral100).padding(13.dp).fillMaxWidth().padding(bottom = 10.dp)) {
-        Row(verticalAlignment = Alignment.Top) {
-            Box(modifier = Modifier.size(16.dp).background(IdColor.Bg))
-            Spacer(Modifier.width(10.dp))
-            Text(a.task, fontSize = 13.5.sp, fontWeight = FontWeight.Medium, lineHeight = 19.sp)
-        }
-        Row(modifier = Modifier.padding(top = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-            Pill(a.pic, IdColor.Neutral900, IdColor.Bg)
-            Spacer(Modifier.width(8.dp))
-            Text("Tenggat ${a.due}", color = IdColor.Neutral700, fontSize = 11.5.sp)
-        }
     }
 }
 

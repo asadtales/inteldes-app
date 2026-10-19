@@ -211,10 +211,12 @@ fun HomeScreen(
     }
 
     state.pendingUpload?.let {
+        val choices by vm.templateChoices.collectAsStateWithLifecycle()
         RecordingDetailsDialog(
             dialogTitle = "Beri nama rekaman ini",
+            choices = choices,
             onDismiss = { vm.cancelPendingUpload() },
-            onConfirm = { title, kind -> vm.confirmUpload(title, kind) },
+            onConfirm = { title, kind, template -> vm.confirmUpload(title, kind, template) },
         )
     }
 }

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.inteldes.app.data.model.AiProvider
+import com.inteldes.app.data.model.BuiltInTemplates
 import com.inteldes.app.data.model.WhisperEngine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -18,6 +19,7 @@ data class AppSettings(
     val densityDetailed: Boolean = false,
     val showTimestamps: Boolean = true,
     val keepOriginalAudio: Boolean = true,
+    val defaultTemplateId: String = BuiltInTemplates.STANDARD_ID,
 )
 
 /** Non-secret app settings — everything except API keys, which live in [SecurePrefs]. */
@@ -28,6 +30,7 @@ class AppSettingsStore(private val context: Context) {
         val DENSITY_DETAILED = booleanPreferencesKey("density_detailed")
         val SHOW_TIMESTAMPS = booleanPreferencesKey("show_timestamps")
         val KEEP_AUDIO = booleanPreferencesKey("keep_original_audio")
+        val DEFAULT_TEMPLATE = stringPreferencesKey("default_template")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -37,6 +40,7 @@ class AppSettingsStore(private val context: Context) {
             densityDetailed = p[Keys.DENSITY_DETAILED] ?: false,
             showTimestamps = p[Keys.SHOW_TIMESTAMPS] ?: true,
             keepOriginalAudio = p[Keys.KEEP_AUDIO] ?: true,
+            defaultTemplateId = p[Keys.DEFAULT_TEMPLATE] ?: BuiltInTemplates.STANDARD_ID,
         )
     }
 
@@ -54,5 +58,9 @@ class AppSettingsStore(private val context: Context) {
 
     suspend fun setKeepOriginalAudio(keep: Boolean) {
         context.dataStore.edit { it[Keys.KEEP_AUDIO] = keep }
+    }
+
+    suspend fun setDefaultTemplateId(id: String) {
+        context.dataStore.edit { it[Keys.DEFAULT_TEMPLATE] = id }
     }
 }
