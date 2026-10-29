@@ -22,6 +22,9 @@ interface CategoryDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(entities: List<CategoryEntity>)
+
+    @Query("DELETE FROM categories WHERE label = :label")
+    suspend fun delete(label: String)
 }
 
 @Dao
@@ -43,6 +46,9 @@ interface RecordingDao {
 
     @Delete
     suspend fun delete(entity: RecordingEntity)
+
+    @Query("UPDATE recordings SET kind = :newKind WHERE kind = :oldKind")
+    suspend fun reassignKind(oldKind: String, newKind: String)
 }
 
 @Dao
@@ -58,6 +64,9 @@ interface RecordingMarkDao {
 
     @Delete
     suspend fun delete(entity: RecordingMarkEntity)
+
+    @Query("DELETE FROM recording_marks WHERE recordingId = :recordingId")
+    suspend fun clear(recordingId: String)
 }
 
 @Dao
@@ -70,57 +79,57 @@ interface NotulensiHistoryDao {
 }
 
 @Dao
-interface NotesDao {
-    @Query("SELECT * FROM topics WHERE recordingId = :recordingId ORDER BY orderIndex")
-    fun observeTopics(recordingId: String): Flow<List<TopicEntity>>
-
-    @Query("SELECT * FROM decisions WHERE recordingId = :recordingId ORDER BY orderIndex")
-    fun observeDecisions(recordingId: String): Flow<List<DecisionEntity>>
-
-    @Query("SELECT * FROM questions WHERE recordingId = :recordingId ORDER BY orderIndex")
-    fun observeQuestions(recordingId: String): Flow<List<QuestionEntity>>
-
-    @Query("SELECT * FROM action_items WHERE recordingId = :recordingId ORDER BY orderIndex")
-    fun observeActionItems(recordingId: String): Flow<List<ActionItemEntity>>
-
-    @Query("SELECT * FROM action_items ORDER BY orderIndex")
-    fun observeAllActionItems(): Flow<List<ActionItemEntity>>
+interface NoteSectionDao {
+    @Query("SELECT * FROM note_sections WHERE recordingId = :recordingId ORDER BY orderIndex")
+    fun observe(recordingId: String): Flow<List<NoteSectionEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertTopics(items: List<TopicEntity>)
+    suspend fun insertAll(items: List<NoteSectionEntity>)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertDecisions(items: List<DecisionEntity>)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertQuestions(items: List<QuestionEntity>)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertActionItems(items: List<ActionItemEntity>)
-
-    @Query("DELETE FROM topics WHERE recordingId = :recordingId")
-    suspend fun clearTopics(recordingId: String)
-
-    @Query("DELETE FROM decisions WHERE recordingId = :recordingId")
-    suspend fun clearDecisions(recordingId: String)
-
-    @Query("DELETE FROM questions WHERE recordingId = :recordingId")
-    suspend fun clearQuestions(recordingId: String)
-
-    @Query("DELETE FROM action_items WHERE recordingId = :recordingId")
-    suspend fun clearActionItems(recordingId: String)
+    @Query("DELETE FROM note_sections WHERE recordingId = :recordingId")
+    suspend fun clear(recordingId: String)
 
     @Transaction
-    suspend fun replaceNotes(
-        recordingId: String,
-        topics: List<TopicEntity>,
-        decisions: List<DecisionEntity>,
-        questions: List<QuestionEntity>,
-        actions: List<ActionItemEntity>,
-    ) {
-        clearTopics(recordingId); clearDecisions(recordingId); clearQuestions(recordingId); clearActionItems(recordingId)
-        insertTopics(topics); insertDecisions(decisions); insertQuestions(questions); insertActionItems(actions)
+    suspend fun replace(recordingId: String, items: List<NoteSectionEntity>) {
+        clear(recordingId)
+        insertAll(items)
     }
+}
+
+@Dao
+interface TemplateDao {
+    @Query("SELECT * FROM templates ORDER BY createdAt")
+    fun observeAll(): Flow<List<TemplateEntity>>
+
+    @Query("SELECT * FROM templates WHERE id = :id")
+    suspend fun getOne(id: String): TemplateEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: TemplateEntity)
+
+    @Query("DELETE FROM templates WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
+interface PhotoDao {
+    @Query("SELECT * FROM photos WHERE recordingId = :recordingId ORDER BY COALESCE(takenAtSec, 2147483647), createdAt")
+    fun observe(recordingId: String): Flow<List<PhotoEntity>>
+
+    @Query("SELECT * FROM photos WHERE id = :id")
+    suspend fun getOne(id: Long): PhotoEntity?
+
+    @Insert
+    suspend fun insert(entity: PhotoEntity): Long
+
+    @Query("UPDATE photos SET caption = :caption WHERE id = :id")
+    suspend fun updateCaption(id: Long, caption: String)
+
+    @Query("DELETE FROM photos WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("DELETE FROM photos WHERE recordingId = :recordingId")
+    suspend fun clear(recordingId: String)
 }
 
 @Dao
@@ -136,7 +145,46 @@ interface TranscriptDao {
 
     @Query("UPDATE transcript_segments SET speaker = :newName WHERE recordingId = :recordingId AND speaker = :oldName")
     suspend fun renameSpeaker(recordingId: String, oldName: String, newName: String)
+
+    /** [orderIndex] is the segment's position in the transcript (the list index the UI shows). */
+    @Query("UPDATE transcript_segments SET text = :text WHERE recordingId = :recordingId AND orderIndex = :orderIndex")
+    suspend fun updateText(recordingId: String, orderIndex: Int, text: String)
 }
+
+@Dao
+interface ContextDao {
+    @Query("SELECT * FROM knowledge_contexts ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<KnowledgeContextEntity>>
+
+    @Query("SELECT * FROM knowledge_contexts WHERE id = :id")
+    fun observeOne(id: String): Flow<KnowledgeContextEntity?>
+
+    @Query("SELECT * FROM knowledge_contexts WHERE id = :id")
+    suspend fun getOne(id: String): KnowledgeContextEntity?
+
+    @Query("SELECT * FROM context_sources WHERE contextId = :contextId ORDER BY addedAt, id")
+    fun observeSources(contextId: String): Flow<List<ContextSourceEntity>>
+
+    @Query("SELECT contextId, COUNT(*) AS n FROM context_sources GROUP BY contextId")
+    fun observeSourceCounts(): Flow<List<SourceCount>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: KnowledgeContextEntity)
+
+    @Insert
+    suspend fun insertSources(items: List<ContextSourceEntity>)
+
+    @Query("UPDATE knowledge_contexts SET name = :name, updatedAt = :now WHERE id = :id")
+    suspend fun rename(id: String, name: String, now: Long)
+
+    @Query("UPDATE knowledge_contexts SET text = :text, updatedAt = :now WHERE id = :id")
+    suspend fun updateText(id: String, text: String, now: Long)
+
+    @Query("DELETE FROM knowledge_contexts WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+data class SourceCount(val contextId: String, val n: Int)
 
 @Dao
 interface ChatDao {

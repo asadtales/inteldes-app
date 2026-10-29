@@ -82,16 +82,20 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
         return processingMutex.withLock {
             try {
                 setProgress(workDataOf(KEY_STEP to ProcessingStep.PREP.name))
-                val audioPath = recording.audioFilePath
-                    ?: throw ApiException("Berkas audio tidak ditemukan.")
-                val audioFile = File(audioPath)
-                if (!audioFile.exists()) throw ApiException("Berkas audio tidak ditemukan di perangkat.")
+                // A conversation imported from text has no audio: its transcript is already stored.
+                val audioFile: File? = recording.audioFilePath?.let { path ->
+                    File(path).also { if (!it.exists()) throw ApiException("Berkas audio tidak ditemukan di perangkat.") }
+                }
+                val storedTranscript = if (audioFile == null) repo.observeTranscript(recordingId).first() else emptyList()
+                if (audioFile == null && storedTranscript.isEmpty()) throw ApiException("Berkas audio tidak ditemukan.")
 
                 setProgress(workDataOf(KEY_STEP to ProcessingStep.TRANSCRIBE.name))
-                val transcriptResult: TranscriptResult = if (recording.engine == WhisperEngine.ON_DEVICE) {
+                val transcriptResult: TranscriptResult = if (audioFile == null) {
+                    TranscriptResult(storedTranscript.map { it.speaker }.toSet().size, storedTranscript)
+                } else if (recording.engine == WhisperEngine.ON_DEVICE) {
                     OnDeviceWhisperClient(app).transcribe(audioFile, rangeStartSec = rangeStartSec, rangeEndSec = rangeEndSec)
                 } else {
-                    val whisperKey = app.securePrefs.whisperCloudApiKey
+                    val whisperKey = app.securePrefs.effectiveWhisperCloudKey
                         ?: throw ApiException("API key transkripsi awan belum diatur. Buka Pengaturan.")
                     WhisperCloudClient(whisperKey).transcribe(audioFile, recording.audioMimeType, rangeStartSec = rangeStartSec, rangeEndSec = rangeEndSec)
                 }
@@ -102,12 +106,15 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
                 setProgress(workDataOf(KEY_STEP to ProcessingStep.SUMMARIZE.name))
                 val current = app.settingsStore.settings.first()
                 val generator = NotulensiGenerator(app.securePrefs)
+                val template = app.templateRepository.find(recording.templateId)
                 val notulensi = generator.generateNotulensi(
                     provider = current.provider,
                     durationSec = recording.durationSec,
                     meetingTitle = recording.title,
                     segments = transcriptResult.segments,
                     density = current.density,
+                    template = template,
+                    location = recording.locationName,
                     outputLanguage = current.outputLanguage,
                     economyMode = current.economyMode,
                 )
@@ -116,8 +123,9 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
                 val resolvedProvider = generator.resolve(current.provider, recording.durationSec)
                 repo.saveNotulensi(recordingId, resolvedProvider, notulensi, current.density)
 
-                if (!current.keepOriginalAudio) audioFile.delete()
+                if (!current.keepOriginalAudio) audioFile?.delete()
 
+                SyncWorker.enqueue(applicationContext)
                 Result.success()
             } catch (e: CancellationException) {
                 // The coroutine is already cancelled at this point, so the DB write below needs
@@ -125,6 +133,7 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
                 withContext(NonCancellable) { repo.markFailed(recordingId, "Dibatalkan oleh pengguna.") }
                 throw e
             } catch (e: ApiException) {
+                android.util.Log.w("ProcessWorker", "ApiException ${e.httpCode}: ${e.message}", e)
                 if (e.httpCode == 429 && runAttemptCount < MAX_ATTEMPTS - 1) {
                     return@withLock Result.retry()
                 }
@@ -136,6 +145,7 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
                 repo.markFailed(recordingId, message)
                 Result.failure(workDataOf(KEY_ERROR to message))
             } catch (e: IOException) {
+                android.util.Log.w("ProcessWorker", "IOException attempt $runAttemptCount: ${e.message}", e)
                 // Connect/read/write timeouts, DNS hiccups, dropped connections — all common
                 // on real mobile networks, especially uploading a long recording. These are
                 // transient, so retry with backoff instead of failing on the first blip.
@@ -146,6 +156,7 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
                 repo.markFailed(recordingId, message)
                 Result.failure(workDataOf(KEY_ERROR to message))
             } catch (e: Exception) {
+                android.util.Log.w("ProcessWorker", "Failed: ${e.message}", e)
                 repo.markFailed(recordingId, e.message ?: "Gagal memproses rekaman.")
                 Result.failure(workDataOf(KEY_ERROR to (e.message ?: "Gagal memproses rekaman.")))
             }

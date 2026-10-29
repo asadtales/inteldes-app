@@ -8,11 +8,18 @@ import com.inteldes.app.data.audio.AudioFileImporter
 import com.inteldes.app.data.audio.AudioRecorderManager
 import com.inteldes.app.data.audio.RecorderState
 import com.inteldes.app.data.audio.ImportedAudio
+import com.inteldes.app.data.importer.ChatImport
+import com.inteldes.app.data.importer.ParsedChat
+import com.inteldes.app.data.importer.TextFileImporter
+import com.inteldes.app.data.model.LocationInfo
+import com.inteldes.app.data.model.NoteTemplate
 import com.inteldes.app.data.model.Recording
 import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.data.prefs.AppSettingsStore
 import com.inteldes.app.data.repository.RecordingRepository
+import com.inteldes.app.data.repository.TemplateChoices
+import com.inteldes.app.data.repository.TemplateRepository
 import com.inteldes.app.data.work.ProcessRecordingWorker
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +45,9 @@ data class HomeUiState(
     val uploadEngine: WhisperEngine = WhisperEngine.CLOUD,
     val recorderState: RecorderState = RecorderState.IDLE,
     val recordingElapsedSec: Int = 0,
+    /** A conversation read from a text file, waiting for the user to name it. */
+    val pendingChat: ParsedChat? = null,
+    val pendingChatName: String = "",
 )
 
 class HomeViewModel(
@@ -45,6 +55,7 @@ class HomeViewModel(
     private val repository: RecordingRepository,
     private val settingsStore: AppSettingsStore,
     private val recorder: AudioRecorderManager,
+    templateRepository: TemplateRepository,
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val filter = MutableStateFlow("Semua")
@@ -52,9 +63,13 @@ class HomeViewModel(
     private val importing = MutableStateFlow(false)
     private val uploadError = MutableStateFlow<String?>(null)
     private val uploadEngine = MutableStateFlow(WhisperEngine.CLOUD)
+    private val pendingChat = MutableStateFlow<Pair<ParsedChat, String>?>(null)
 
     private val uploadReadyChannel = Channel<String>(Channel.BUFFERED)
     val onUploadProcessed = uploadReadyChannel.receiveAsFlow()
+
+    val templateChoices: StateFlow<TemplateChoices> = templateRepository.observeChoices(settingsStore)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TemplateChoices.Initial)
 
     private data class Flags(val pending: ImportedAudio?, val importing: Boolean, val error: String?, val engine: WhisperEngine)
 
@@ -62,8 +77,9 @@ class HomeViewModel(
         combine(repository.observeRecordings(), query, filter) { recs, q, f -> Triple(recs, q, f) },
         combine(pendingUpload, importing, uploadError, uploadEngine) { p, i, e, eng -> Flags(p, i, e, eng) },
         repository.observeCategories(),
-        combine(recorder.state, recorder.elapsedSec) { st, el -> st to el },
-    ) { (recs, q, f), flags, categories, (recState, recElapsed) ->
+        combine(recorder.state, recorder.elapsedSec, pendingChat) { st, el, chat -> Triple(st, el, chat) },
+    ) { (recs, q, filterRaw), flags, categories, (recState, recElapsed, chat) ->
+        val f = if (filterRaw == "Semua" || filterRaw in categories) filterRaw else "Semua"
         val visible = recs.filter { r ->
             (f == "Semua" || r.kind == f) &&
                 (q.isBlank() || r.title.contains(q, ignoreCase = true) || (r.summary?.contains(q, ignoreCase = true) == true))
@@ -82,6 +98,8 @@ class HomeViewModel(
             uploadEngine = flags.engine,
             recorderState = recState,
             recordingElapsedSec = recElapsed,
+            pendingChat = chat?.first,
+            pendingChatName = chat?.second.orEmpty(),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeUiState())
 
@@ -89,6 +107,7 @@ class HomeViewModel(
     fun setFilter(value: String) { filter.value = value }
     fun setUploadEngine(value: WhisperEngine) { uploadEngine.value = value }
     fun addCategory(label: String) { viewModelScope.launch { repository.addCategory(label) } }
+    fun deleteCategory(label: String) { viewModelScope.launch { repository.deleteCategory(label) } }
 
     fun onFilePicked(uri: Uri) {
         viewModelScope.launch {
@@ -107,19 +126,53 @@ class HomeViewModel(
         }
     }
 
+    /** Reads a WhatsApp export / plain dialogue file; [displayName] seeds the title suggestion. */
+    fun onTextPicked(uri: Uri, displayName: String?) {
+        viewModelScope.launch {
+            uploadError.value = null
+            importing.value = true
+            try {
+                val chat = ChatImport.parse(TextFileImporter.read(appContext, uri))
+                    ?: throw java.io.IOException("Tidak ada percakapan yang bisa dibaca di berkas itu. Dukungan: ekspor chat WhatsApp (.txt/.zip) atau teks \"Nama: ucapan\".")
+                pendingChat.value = chat to (displayName?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "")
+            } catch (e: Exception) {
+                uploadError.value = e.message ?: "Gagal membaca berkas teks."
+            } finally {
+                importing.value = false
+            }
+        }
+    }
+
+    fun cancelPendingChat() { pendingChat.value = null }
+
+    /** Saves the conversation as a recording without audio and runs only the notulensi step on it. */
+    fun confirmChat(title: String, kind: String, template: NoteTemplate, location: LocationInfo?) {
+        val (chat, _) = pendingChat.value ?: return
+        pendingChat.value = null
+        viewModelScope.launch {
+            val id = repository.createRecording(
+                title = title, kind = kind, durationSec = chat.durationSec, audioFilePath = null,
+                engine = WhisperEngine.CLOUD, template = template, location = location, createdAt = chat.startMillis,
+            )
+            repository.saveTranscript(id, chat.participants, chat.segments)
+            ProcessRecordingWorker.enqueue(appContext, id)
+            uploadReadyChannel.send(id)
+        }
+    }
+
     fun cancelPendingUpload() {
         pendingUpload.value?.file?.delete()
         pendingUpload.value = null
     }
 
-    fun confirmUpload(title: String, kind: String) {
+    fun confirmUpload(title: String, kind: String, template: NoteTemplate, location: LocationInfo?) {
         val audio = pendingUpload.value ?: return
         val engine = uploadEngine.value
         pendingUpload.value = null
         viewModelScope.launch {
             val id = repository.createRecording(
                 title = title, kind = kind, durationSec = audio.durationSec,
-                audioFilePath = audio.file.absolutePath, audioMimeType = audio.mimeType, engine = engine,
+                audioFilePath = audio.file.absolutePath, audioMimeType = audio.mimeType, engine = engine, template = template, location = location,
             )
             ProcessRecordingWorker.enqueue(appContext, id)
             uploadReadyChannel.send(id)

@@ -20,7 +20,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ContentCut
@@ -51,20 +58,15 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inteldes.app.data.export.NotulensiExporter
-import com.inteldes.app.data.model.ActionItem
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
-import com.inteldes.app.data.model.Decision
-import com.inteldes.app.data.model.Question
 import com.inteldes.app.data.model.Recording
 import com.inteldes.app.data.model.RecordingStatus
-import com.inteldes.app.data.model.Topic
 import com.inteldes.app.data.model.TranscriptSegment
 import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.ui.components.TranscribeOptionsDialog
 import com.inteldes.app.ui.components.TrimAudioDialog
 import com.inteldes.app.ui.components.KickerLabel
-import com.inteldes.app.ui.components.Pill
 import com.inteldes.app.ui.theme.IdColor
 import com.inteldes.app.ui.util.formatDuration
 import com.inteldes.app.ui.util.formatRecordTimer
@@ -88,6 +90,7 @@ fun DetailScreen(
     }
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showLocationEdit by remember { mutableStateOf(false) }
     var showTrim by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(IdColor.Bg)) {
@@ -139,6 +142,7 @@ fun DetailScreen(
             onTrim = { showTrim = true },
             onAddMark = vm::addMarkAtPlayback,
             onDeleteMark = vm::deleteMark,
+            onSkip = vm::skipPlayback,
         )
         when {
             recording == null -> Unit
@@ -153,6 +157,7 @@ fun DetailScreen(
                 onTogglePlay = vm::togglePlayback,
                 onSeek = onSeek,
                 onRenameSpeaker = vm::renameSpeaker,
+                onEditText = vm::editTranscriptText,
                 actions = actions,
                 modifier = Modifier.weight(1f),
             )
@@ -162,6 +167,13 @@ fun DetailScreen(
                 currentEngine = recording.engine,
                 durationSec = recording.durationSec,
                 marks = state.marks,
+                locationName = recording.locationName,
+                hasAudio = recording.audioFilePath != null,
+                onEditLocation = { showLocationEdit = true },
+                photos = state.photos,
+                onAddPhoto = vm::addPhoto,
+                onUpdateCaption = vm::updatePhotoCaption,
+                onDeletePhoto = vm::deletePhoto,
                 playback = playback,
                 onTogglePlay = vm::togglePlayback,
                 onSeek = onSeek,
@@ -175,11 +187,18 @@ fun DetailScreen(
                 recording = recording,
                 notulensi = state.notulensi,
                 history = state.notulensiHistory,
+                photos = state.photos,
+                templates = state.templates,
                 regenerating = state.regenerating,
                 error = state.error,
-                onRegenerate = vm::regenerateNotulensi,
+                onRegenerate = { vm.regenerateNotulensi() },
                 onCancelRegenerate = vm::cancelRegenerate,
+                onEditLocation = { showLocationEdit = true },
+                onPickTemplate = { vm.regenerateNotulensi(it) },
                 onChangeAgent = onGoSettings,
+                onAddPhoto = vm::addPhoto,
+                onUpdateCaption = vm::updatePhotoCaption,
+                onDeletePhoto = vm::deletePhoto,
                 modifier = Modifier.weight(1f),
             )
             state.tab == DetailTab.SCRIPT -> ScriptTab(
@@ -189,6 +208,7 @@ fun DetailScreen(
                 onTogglePlay = vm::togglePlayback,
                 onSeek = onSeek,
                 onRenameSpeaker = vm::renameSpeaker,
+                onEditText = vm::editTranscriptText,
                 actions = actions,
                 modifier = Modifier.weight(1f),
             )
@@ -196,6 +216,9 @@ fun DetailScreen(
                 chat = state.chat,
                 thinking = state.thinking,
                 providerLabel = providerBadge(state.notulensi?.provider),
+                contexts = state.contexts,
+                attachedContextId = state.attachedContextId,
+                onAttachContext = vm::attachContext,
                 onSend = vm::ask,
                 modifier = Modifier.weight(1f),
             )
@@ -218,6 +241,14 @@ fun DetailScreen(
                 },
             )
         }
+    }
+
+    if (showLocationEdit) {
+        com.inteldes.app.ui.components.LocationEditDialog(
+            current = state.recording?.locationName,
+            onDismiss = { showLocationEdit = false },
+            onSave = { vm.setLocation(it); showLocationEdit = false },
+        )
     }
 
     if (showDeleteConfirm) {
@@ -243,7 +274,7 @@ fun DetailScreen(
     }
 }
 
-private fun providerBadge(provider: AiProvider?): String = when (provider) {
+internal fun providerBadge(provider: AiProvider?): String = when (provider) {
     AiProvider.GEMINI -> "Gemini 2.5 Pro"
     AiProvider.CLAUDE -> "Claude Sonnet"
     else -> "Agent AI"
@@ -275,6 +306,7 @@ private class PlayerActions(
     val onTrim: () -> Unit,
     val onAddMark: () -> Unit,
     val onDeleteMark: (com.inteldes.app.data.model.RecordingMark) -> Unit,
+    val onSkip: (Int) -> Unit,
 )
 
 /**
@@ -301,6 +333,10 @@ private fun AudioPlayerBar(
 
     Column(modifier = modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (actions != null) {
+                SkipButton(rewind = true, onClick = { actions.onSkip(-SKIP_SECONDS) })
+                Spacer(Modifier.width(4.dp))
+            }
             Box(
                 modifier = Modifier.size(42.dp).background(IdColor.Accent).clickable(onClick = onTogglePlay),
                 contentAlignment = Alignment.Center,
@@ -311,7 +347,11 @@ private fun AudioPlayerBar(
                     tint = IdColor.White,
                 )
             }
-            Spacer(Modifier.width(12.dp))
+            if (actions != null) {
+                Spacer(Modifier.width(4.dp))
+                SkipButton(rewind = false, onClick = { actions.onSkip(SKIP_SECONDS) })
+            }
+            Spacer(Modifier.width(10.dp))
             Text(
                 "${formatRecordTimer(shownPositionSec)} / ${formatRecordTimer(playback.durationSec)}",
                 color = IdColor.Neutral700,
@@ -441,6 +481,13 @@ private fun NotDoneState(
     currentEngine: WhisperEngine,
     durationSec: Int,
     marks: List<com.inteldes.app.data.model.RecordingMark>,
+    locationName: String?,
+    hasAudio: Boolean,
+    onEditLocation: () -> Unit,
+    photos: List<com.inteldes.app.data.model.Photo>,
+    onAddPhoto: (android.net.Uri, Boolean) -> Unit,
+    onUpdateCaption: (com.inteldes.app.data.model.Photo, String) -> Unit,
+    onDeletePhoto: (com.inteldes.app.data.model.Photo) -> Unit,
     playback: com.inteldes.app.data.audio.PlaybackState,
     onTogglePlay: () -> Unit,
     onSeek: (Int) -> Unit,
@@ -491,6 +538,10 @@ private fun NotDoneState(
                     AudioPlayerBar(playback, onTogglePlay, onSeek, modifier = Modifier.fillMaxWidth(), actions = actions)
                 }
             }
+            Column(modifier = Modifier.fillMaxWidth().background(IdColor.Neutral100).padding(horizontal = 14.dp, vertical = 6.dp)) {
+                com.inteldes.app.ui.components.LocationRow(locationName, onEdit = onEditLocation)
+            }
+            PhotoDocumentation(photos, onAddPhoto, onUpdateCaption, onDeletePhoto)
         }
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp)) {
             Box(
@@ -502,7 +553,14 @@ private fun NotDoneState(
                     // engine — worth an explicit choice every time rather than silently reusing
                     // whatever engine happened to be set before. Only skipped when genuinely just
                     // reopening a run that's already in progress (nothing new gets started then).
-                    .clickable(onClick = if (!statusIsWorking) { { showEnginePicker = true } } else onOpenProcessing)
+                    .clickable(
+                        onClick = when {
+                            statusIsWorking -> onOpenProcessing
+                            // An imported conversation has no audio: nothing to transcribe, so no engine to choose.
+                            !hasAudio -> { { onStartProcessing(currentEngine, null, null) } }
+                            else -> { { showEnginePicker = true } }
+                        },
+                    )
                     .padding(vertical = 16.dp),
             ) {
                 Text(
@@ -534,263 +592,6 @@ private fun NotDoneState(
     }
 }
 
-// ───────────────────────── Notulensi tab (1A — continuous document) ─────────────────────────
-
-@Composable
-private fun NotesTab(
-    recording: Recording,
-    notulensi: com.inteldes.app.data.model.Notulensi?,
-    history: List<com.inteldes.app.data.model.NotulensiHistoryEntry>,
-    regenerating: Boolean,
-    error: String?,
-    onRegenerate: () -> Unit,
-    onCancelRegenerate: () -> Unit,
-    onChangeAgent: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalContext.current
-    var viewingHistory by remember { mutableStateOf<com.inteldes.app.data.model.NotulensiHistoryEntry?>(null) }
-    if (notulensi == null) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Notulensi belum tersedia.", color = IdColor.Neutral700, fontSize = 13.sp)
-        }
-        return
-    }
-    LazyColumn(modifier = modifier.padding(horizontal = 18.dp)) {
-        item {
-            Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Pill(providerBadge(notulensi.provider), IdColor.Accent, IdColor.White)
-                Spacer(Modifier.width(8.dp))
-                Text("disusun oleh agent AI", color = IdColor.Neutral600, fontSize = 11.sp)
-            }
-            if (history.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
-                Text("VERSI SEBELUMNYA", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.6.sp)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                    history.forEach { entry ->
-                        Text(
-                            "${entry.density.label} · ${formatRelativeDay(entry.generatedAt)}",
-                            color = IdColor.Neutral800,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .background(IdColor.Neutral100)
-                                .clickable { viewingHistory = entry }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-            KickerLabel("Ringkasan")
-            Spacer(Modifier.height(8.dp))
-            Text(notulensi.summary, fontSize = 14.sp, lineHeight = 22.sp)
-            Spacer(Modifier.height(18.dp))
-            HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
-            Spacer(Modifier.height(2.dp))
-        }
-        item {
-            KickerLabel("Poin bahasan", modifier = Modifier.padding(top = 16.dp, bottom = 6.dp))
-        }
-        items(notulensi.topics) { t -> TopicRow(t) }
-        item {
-            KickerLabel("Keputusan", modifier = Modifier.padding(top = 22.dp, bottom = 6.dp))
-        }
-        items(notulensi.decisions) { d -> DecisionRow(d) }
-        item {
-            KickerLabel("Poin pertanyaan", modifier = Modifier.padding(top = 22.dp, bottom = 6.dp))
-        }
-        items(notulensi.questions) { q -> QuestionRow(q) }
-        item {
-            KickerLabel("Action item", modifier = Modifier.padding(top = 22.dp, bottom = 10.dp))
-        }
-        items(notulensi.actions) { a -> ActionRow(a) }
-        item {
-            error?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(it, color = IdColor.Accent, fontSize = 12.sp)
-            }
-            Row(modifier = Modifier.padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (regenerating) {
-                    Text(
-                        "MENYUSUN…",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = IdColor.Neutral600,
-                        modifier = Modifier.weight(1f).background(IdColor.Bg).padding(vertical = 12.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
-                    Text(
-                        "BATALKAN",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = IdColor.White,
-                        modifier = Modifier.weight(1f).background(IdColor.Accent).clickable(onClick = onCancelRegenerate).padding(vertical = 12.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
-                } else {
-                Text(
-                    "SUSUN ULANG",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = IdColor.Text,
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(IdColor.Bg)
-                        .clickable(onClick = onRegenerate)
-                        .padding(vertical = 12.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-                Text(
-                    "GANTI AGENT",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = IdColor.Bg,
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(IdColor.Neutral900)
-                        .clickable(onClick = onChangeAgent)
-                        .padding(vertical = 12.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-                }
-            }
-            Row(modifier = Modifier.padding(bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "EKSPOR .TXT",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = IdColor.Text,
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(IdColor.Neutral100)
-                        .clickable {
-                            val uri = NotulensiExporter.exportTxt(context, recording, notulensi)
-                            context.startActivity(NotulensiExporter.shareIntent(uri, "text/plain"))
-                        }
-                        .padding(vertical = 12.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-                Text(
-                    "EKSPOR WORD",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = IdColor.Text,
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(IdColor.Neutral100)
-                        .clickable {
-                            val uri = NotulensiExporter.exportDocx(context, recording, notulensi)
-                            context.startActivity(
-                                NotulensiExporter.shareIntent(
-                                    uri,
-                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                ),
-                            )
-                        }
-                        .padding(vertical = 12.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-            }
-        }
-    }
-
-    viewingHistory?.let { entry ->
-        NotulensiHistoryDialog(entry = entry, onDismiss = { viewingHistory = null })
-    }
-}
-
-@Composable
-private fun NotulensiHistoryDialog(entry: com.inteldes.app.data.model.NotulensiHistoryEntry, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text("Versi ${entry.density.label}", fontWeight = FontWeight.Bold)
-                Text(formatRelativeDay(entry.generatedAt), color = IdColor.Neutral600, fontSize = 11.sp)
-            }
-        },
-        text = {
-            LazyColumn(modifier = Modifier.height(400.dp)) {
-                item {
-                    KickerLabel("Ringkasan")
-                    Spacer(Modifier.height(6.dp))
-                    Text(entry.notulensi.summary, fontSize = 13.5.sp, lineHeight = 20.sp)
-                    Spacer(Modifier.height(14.dp))
-                    KickerLabel("Poin bahasan")
-                }
-                items(entry.notulensi.topics) { t -> TopicRow(t) }
-                item { KickerLabel("Keputusan", modifier = Modifier.padding(top = 14.dp)) }
-                items(entry.notulensi.decisions) { d -> DecisionRow(d) }
-            }
-        },
-        confirmButton = {
-            Text("TUTUP", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable(onClick = onDismiss).padding(10.dp))
-        },
-    )
-}
-
-@Composable
-private fun TopicRow(t: Topic) {
-    Row(modifier = Modifier.padding(vertical = 11.dp)) {
-        Text(t.timestampLabel, color = IdColor.Accent, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, modifier = Modifier.width(46.dp))
-        Column {
-            Text(t.title, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-            Spacer(Modifier.height(3.dp))
-            Text(t.body, fontSize = 13.sp, color = IdColor.Neutral800, lineHeight = 19.sp)
-        }
-    }
-    HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
-}
-
-@Composable
-private fun DecisionRow(d: Decision) {
-    Row(modifier = Modifier.padding(vertical = 11.dp)) {
-        Text(d.number, color = IdColor.Accent, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, modifier = Modifier.width(30.dp))
-        Text(d.text, fontSize = 13.5.sp, lineHeight = 19.sp)
-    }
-    HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
-}
-
-@Composable
-private fun QuestionRow(q: Question) {
-    Column(modifier = Modifier.padding(vertical = 11.dp)) {
-        Row {
-            Text("?", color = IdColor.Accent, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, modifier = Modifier.width(23.dp))
-            Text(q.question, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, lineHeight = 19.sp)
-        }
-        Row(modifier = Modifier.padding(start = 23.dp, top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-            Pill(
-                q.status.label,
-                background = IdColor.Bg,
-                contentColor = IdColor.Neutral700,
-                bordered = true,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(q.note, color = IdColor.Neutral700, fontSize = 11.5.sp)
-        }
-    }
-    HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
-}
-
-@Composable
-private fun ActionRow(a: ActionItem) {
-    Column(modifier = Modifier.background(IdColor.Neutral100).padding(13.dp).fillMaxWidth().padding(bottom = 10.dp)) {
-        Row(verticalAlignment = Alignment.Top) {
-            Box(modifier = Modifier.size(16.dp).background(IdColor.Bg))
-            Spacer(Modifier.width(10.dp))
-            Text(a.task, fontSize = 13.5.sp, fontWeight = FontWeight.Medium, lineHeight = 19.sp)
-        }
-        Row(modifier = Modifier.padding(top = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-            Pill(a.pic, IdColor.Neutral900, IdColor.Bg)
-            Spacer(Modifier.width(8.dp))
-            Text("Tenggat ${a.due}", color = IdColor.Neutral700, fontSize = 11.5.sp)
-        }
-    }
-}
-
 // ───────────────────────── Transkrip tab ─────────────────────────
 
 @Composable
@@ -801,10 +602,24 @@ private fun ScriptTab(
     onTogglePlay: () -> Unit,
     onSeek: (Int) -> Unit,
     onRenameSpeaker: (String, String) -> Unit,
+    onEditText: (Int, String) -> Unit,
     actions: PlayerActions,
     modifier: Modifier = Modifier,
 ) {
-    var renameTarget by remember { mutableStateOf<String?>(null) }
+    var editIndex by remember { mutableStateOf<Int?>(null) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val context = LocalContext.current
+
+    // The line being heard: the last one that started at or before the playhead. Only shown once
+    // playback has actually begun, so an idle transcript isn't stuck with the first line lit.
+    val active = if (playback.ready && (playback.playing || playback.positionSec > 0)) {
+        segments.indexOfLast { it.timestampSec <= playback.positionSec }.takeIf { it >= 0 }
+    } else null
+
+    // Follow the audio while it plays so the highlighted line stays on screen.
+    androidx.compose.runtime.LaunchedEffect(active, playback.playing) {
+        if (playback.playing && active != null) listState.animateScrollToItem(active)
+    }
 
     Column(modifier = modifier.fillMaxSize()) {
         if (playback.ready) {
@@ -817,38 +632,149 @@ private fun ScriptTab(
             )
             HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
         }
-        LazyColumn(modifier = Modifier.weight(1f)) {
-            items(segments) { s ->
-                Column(
+        LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
+            itemsIndexed(segments) { index, s ->
+                val isActive = index == active
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { renameTarget = s.speaker }
-                        .padding(horizontal = 18.dp, vertical = 13.dp),
+                        .height(IntrinsicSize.Min)
+                        .background(if (isActive) IdColor.Accent.copy(alpha = 0.10f) else androidx.compose.ui.graphics.Color.Transparent),
                 ) {
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(s.speaker, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
-                        Spacer(Modifier.width(9.dp))
-                        Text(formatRecordTimer(s.timestampSec), color = IdColor.Accent, fontWeight = FontWeight.SemiBold, fontSize = 10.5.sp)
+                    // Accent bar on the line currently playing.
+                    Box(modifier = Modifier.width(4.dp).fillMaxHeight().background(if (isActive) IdColor.Accent else androidx.compose.ui.graphics.Color.Transparent))
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(enabled = playback.ready) { onSeek(s.timestampSec) }
+                            .padding(start = 14.dp, end = 4.dp, top = 13.dp, bottom = 13.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(s.speaker, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                            Spacer(Modifier.width(9.dp))
+                            Text(formatRecordTimer(s.timestampSec), color = IdColor.Accent, fontWeight = FontWeight.SemiBold, fontSize = 10.5.sp)
+                            if (isActive) {
+                                Spacer(Modifier.width(8.dp))
+                                Icon(
+                                    if (playback.playing) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                                    contentDescription = "Baris yang sedang diputar",
+                                    tint = IdColor.Accent,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(s.text, fontSize = 13.5.sp, lineHeight = 21.sp, fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal)
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Text(s.text, fontSize = 13.5.sp, lineHeight = 21.sp)
+                    IconButton(onClick = { editIndex = index }, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Perbaiki teks", tint = IdColor.Neutral600, modifier = Modifier.size(17.dp))
+                    }
                 }
                 HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
             }
             item {
                 Text(
-                    "Ketuk paragraf untuk memperbaiki nama pembicara.",
+                    if (playback.ready) "Ketuk baris untuk memutar dari sana. Ikon pensil memperbaiki kata-kata atau nama pembicara."
+                    else "Ikon pensil memperbaiki kata-kata atau nama pembicara.",
                     color = IdColor.Neutral600,
                     fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
                     modifier = Modifier.padding(18.dp),
                 )
             }
         }
     }
 
-    renameTarget?.let { current ->
-        RenameSpeakerDialog(current, roster, onDismiss = { renameTarget = null }, onConfirm = { newName -> onRenameSpeaker(current, newName); renameTarget = null })
+    editIndex?.let { i ->
+        val seg = segments.getOrNull(i)
+        if (seg != null) {
+            EditSegmentDialog(
+                segment = seg,
+                roster = roster,
+                canPlay = playback.ready,
+                onPlay = { onSeek(seg.timestampSec); if (!playback.playing) onTogglePlay() },
+                onDismiss = { editIndex = null },
+                onSave = { newText, newSpeaker ->
+                    if (newText.trim() != seg.text) {
+                        onEditText(i, newText)
+                        android.widget.Toast.makeText(context, "Tersimpan. Tekan SUSUN ULANG di tab Notulensi agar ringkasan memakai teks baru.", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                    if (newSpeaker.isNotBlank() && newSpeaker != seg.speaker) onRenameSpeaker(seg.speaker, newSpeaker)
+                    editIndex = null
+                },
+            )
+        }
     }
+}
+
+/** Fix one transcript line's wording; changing the speaker name renames that speaker everywhere. */
+@Composable
+private fun EditSegmentDialog(
+    segment: TranscriptSegment,
+    roster: List<String>,
+    canPlay: Boolean,
+    onPlay: () -> Unit,
+    onDismiss: () -> Unit,
+    onSave: (text: String, speaker: String) -> Unit,
+) {
+    var text by remember { mutableStateOf(segment.text) }
+    var speaker by remember { mutableStateOf(segment.speaker) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Perbaiki transkrip · ${formatRecordTimer(segment.timestampSec)}", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                if (canPlay) {
+                    Text(
+                        "▶ DENGARKAN BARIS INI",
+                        color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 0.6.sp,
+                        modifier = Modifier.clickable(onClick = onPlay).padding(vertical = 6.dp),
+                    )
+                }
+                Text("TEKS", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
+                Spacer(Modifier.height(4.dp))
+                BasicTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    textStyle = TextStyle(fontSize = 14.sp, color = IdColor.Text, lineHeight = 20.sp),
+                    decorationBox = { inner ->
+                        Box(modifier = Modifier.fillMaxWidth().heightIn(min = 110.dp).background(IdColor.Neutral100).padding(10.dp)) { inner() }
+                    },
+                )
+                Spacer(Modifier.height(14.dp))
+                Text("PEMBICARA (berlaku untuk semua ucapannya)", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
+                Spacer(Modifier.height(4.dp))
+                if (roster.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        roster.forEach { r ->
+                            Text(
+                                r, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                color = if (speaker == r) IdColor.White else IdColor.Neutral800,
+                                modifier = Modifier
+                                    .background(if (speaker == r) IdColor.Accent else IdColor.Neutral200)
+                                    .clickable { speaker = r }
+                                    .padding(horizontal = 9.dp, vertical = 6.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                BasicTextField(
+                    value = speaker,
+                    onValueChange = { speaker = it },
+                    singleLine = true,
+                    textStyle = TextStyle(fontSize = 14.sp, color = IdColor.Text),
+                    decorationBox = { inner -> Box(modifier = Modifier.fillMaxWidth().background(IdColor.Neutral100).padding(10.dp)) { inner() } },
+                )
+            }
+        },
+        confirmButton = {
+            Text("SIMPAN", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onSave(text, speaker) }.padding(10.dp))
+        },
+        dismissButton = {
+            Text("Batal", color = IdColor.Neutral700, modifier = Modifier.clickable(onClick = onDismiss).padding(10.dp))
+        },
+    )
 }
 
 @Composable
@@ -908,6 +834,9 @@ private fun AskTab(
     chat: List<ChatMessage>,
     thinking: Boolean,
     providerLabel: String,
+    contexts: List<com.inteldes.app.data.model.KnowledgeContext>,
+    attachedContextId: String?,
+    onAttachContext: (String?) -> Unit,
     onSend: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -941,6 +870,30 @@ private fun AskTab(
             }
         }
         Column(modifier = Modifier.background(IdColor.Neutral100).padding(top = 10.dp, bottom = 12.dp)) {
+            if (contexts.isNotEmpty()) {
+                // Optional background knowledge: a saved context (merged notes of earlier meetings) that the
+                // AI reads along with this recording's transcript when answering.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("KONTEKS", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
+                    listOf<com.inteldes.app.data.model.KnowledgeContext?>(null).plus(contexts).forEach { c ->
+                        val on = attachedContextId == c?.id
+                        Text(
+                            c?.name ?: "Tanpa",
+                            fontSize = 11.5.sp, fontWeight = FontWeight.Bold,
+                            color = if (on) IdColor.White else IdColor.Neutral800,
+                            modifier = Modifier
+                                .background(if (on) IdColor.Accent else IdColor.Neutral200)
+                                .clickable { onAttachContext(c?.id) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -986,5 +939,24 @@ private fun AskTab(
                 }
             }
         }
+    }
+}
+
+private const val SKIP_SECONDS = 15
+
+/** Back/forward 15 s: a circular arrow with "15" in it (Material has no 15 s icon, only 5/10/30). */
+@Composable
+private fun SkipButton(rewind: Boolean, onClick: () -> Unit) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(38.dp).clickable(onClick = onClick),
+    ) {
+        Icon(
+            if (rewind) Icons.Filled.Replay else Icons.Filled.Refresh,
+            contentDescription = if (rewind) "Mundur 15 detik" else "Maju 15 detik",
+            tint = IdColor.Neutral800,
+            modifier = Modifier.size(32.dp),
+        )
+        Text("15", fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = IdColor.Neutral800)
     }
 }

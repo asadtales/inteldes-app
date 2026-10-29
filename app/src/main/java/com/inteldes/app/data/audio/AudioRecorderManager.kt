@@ -1,6 +1,8 @@
 package com.inteldes.app.data.audio
 
 import android.content.Context
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.Build
 import kotlinx.coroutines.CoroutineScope
@@ -47,11 +49,19 @@ class AudioRecorderManager(private val appContext: Context) {
     private val _marks = MutableStateFlow<List<Int>>(emptyList())
     val marks: StateFlow<List<Int>> = _marks
 
+    /** What Android is actually capturing from right now (e.g. "Bluetooth · Galaxy Buds"), for display. */
+    private val _activeMic = MutableStateFlow<String?>(null)
+    val activeMic: StateFlow<String?> = _activeMic
+
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var scoStarted = false
+
     var outputFile: File? = null
         private set
 
+    /** [mic] null = let Android choose (it switches to a connected Bluetooth earbud on its own). */
     @Throws(IOException::class)
-    fun start(): File {
+    fun start(mic: MicOption? = null): File {
         // Idempotent: a session already in progress is returned as-is. Starting again used to
         // create a second MediaRecorder over the first (never released), reset the timer and
         // marks, and orphan the earlier file — which is what "continue the current recording"
@@ -65,17 +75,28 @@ class AudioRecorderManager(private val appContext: Context) {
             @Suppress("DEPRECATION")
             MediaRecorder()
         }
-        mr.apply {
-            setAudioSource(MediaRecorder.AudioSource.MIC)
-            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            setAudioEncodingBitRate(96_000)
-            setAudioSamplingRate(44_100)
-            setOutputFile(file.absolutePath)
-            prepare()
-            start()
+        val bluetooth = mic?.kind == MicKind.BLUETOOTH
+        try {
+            mr.apply {
+                // Bluetooth headsets only deliver narrow-band mono voice audio, so ask for what they can give.
+                setAudioSource(if (bluetooth) MediaRecorder.AudioSource.VOICE_COMMUNICATION else MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(if (bluetooth) 48_000 else 96_000)
+                setAudioSamplingRate(if (bluetooth) 16_000 else 44_100)
+                setOutputFile(file.absolutePath)
+                if (mic != null) route(this, mic)
+                prepare()
+                start()
+            }
+        } catch (e: Exception) {
+            releaseBluetooth()
+            runCatching { mr.release() }
+            file.delete()
+            throw if (e is IOException) e else IOException(e.message ?: "Gagal memulai perekaman", e)
         }
         recorder = mr
+        refreshActiveMic()
         outputFile = file
         _elapsedSec.value = 0
         _amplitudeHistory.value = List(WAVE_HISTORY) { 0 }
@@ -83,6 +104,52 @@ class AudioRecorderManager(private val appContext: Context) {
         _state.value = RecorderState.RECORDING
         startAmplitudeLoop()
         return file
+    }
+
+    /** Switches microphone, also while recording. null = back to the system's automatic choice. */
+    fun selectMic(mic: MicOption?) {
+        val mr = recorder ?: return
+        if (mic == null) {
+            runCatching { mr.setPreferredDevice(null) }
+            releaseBluetooth()
+        } else {
+            route(mr, mic)
+        }
+        refreshActiveMic()
+    }
+
+    private fun route(mr: MediaRecorder, mic: MicOption) {
+        runCatching { mr.setPreferredDevice(mic.device) }
+        if (mic.kind == MicKind.BLUETOOTH) startBluetooth(mic.device) else releaseBluetooth()
+    }
+
+    /** Asks Android to open the Bluetooth voice link, the path that carries the earbud's mic audio. */
+    @Suppress("DEPRECATION")
+    private fun startBluetooth(input: AudioDeviceInfo) {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val target = audioManager.availableCommunicationDevices
+                    .firstOrNull { MicSources.isBluetoothType(it.type) && it.address == input.address }
+                    ?: audioManager.availableCommunicationDevices.firstOrNull { MicSources.isBluetoothType(it.type) }
+                if (target != null) audioManager.setCommunicationDevice(target)
+            } else if (!scoStarted) {
+                audioManager.startBluetoothSco()
+                scoStarted = true
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun releaseBluetooth() {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) audioManager.clearCommunicationDevice()
+            else if (scoStarted) audioManager.stopBluetoothSco()
+        }
+        scoStarted = false
+    }
+
+    private fun refreshActiveMic() {
+        _activeMic.value = MicSources.describe(runCatching { recorder?.routedDevice }.getOrNull())
     }
 
     fun addMark() {
@@ -121,6 +188,8 @@ class AudioRecorderManager(private val appContext: Context) {
             file?.delete()
         } finally {
             recorder = null
+            releaseBluetooth()
+            _activeMic.value = null
             _state.value = RecorderState.IDLE
             _amplitude.value = 0
         }
@@ -131,6 +200,8 @@ class AudioRecorderManager(private val appContext: Context) {
         amplitudeJob?.cancel()
         runCatching { recorder?.apply { stop(); release() } }
         recorder = null
+        releaseBluetooth()
+        _activeMic.value = null
         outputFile?.delete()
         _state.value = RecorderState.IDLE
         _amplitude.value = 0
@@ -144,6 +215,7 @@ class AudioRecorderManager(private val appContext: Context) {
             while (_state.value != RecorderState.IDLE) {
                 if (_state.value == RecorderState.RECORDING) {
                     val sample = runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0)
+                    if (_elapsedSec.value % 3 == 0) refreshActiveMic()
                     _amplitude.value = sample
                     _amplitudeHistory.value = (_amplitudeHistory.value + sample).takeLast(WAVE_HISTORY)
                     _elapsedSec.value += 1

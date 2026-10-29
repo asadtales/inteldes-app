@@ -53,6 +53,15 @@ class AudioPlayerManager {
         _state.value = _state.value.copy(positionSec = sec)
     }
 
+    /** Jumps [deltaSec] from the player's live position (negative = back), clamped to the recording. */
+    fun skipBy(deltaSec: Int) {
+        val mp = player ?: return
+        val durationMs = mp.duration
+        val target = (mp.currentPosition + deltaSec * 1000).coerceIn(0, durationMs)
+        mp.seekTo(target)
+        _state.value = _state.value.copy(positionSec = target / 1000)
+    }
+
     private fun startTicking() {
         tickJob?.cancel()
         tickJob = scope.launch {

@@ -52,6 +52,8 @@ fun ProcessingScreen(
     }
 
     val steps = ProcessingStep.entries
+    // A conversation imported from text has no audio, so the audio-flavoured step names would mislead.
+    val textOnly = state.recording?.let { it.audioFilePath == null } == true
     val currentIndex = steps.indexOf(state.currentStep)
     val progress by animateFloatAsState(
         targetValue = if (currentIndex < 0) 0.04f else (currentIndex + 1f) / steps.size,
@@ -126,7 +128,7 @@ fun ProcessingScreen(
             LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = 18.dp)) {
                 items(steps) { step ->
                     val idx = steps.indexOf(step)
-                    StepRow(step, done = idx < currentIndex, active = idx == currentIndex, todo = idx > currentIndex)
+                    StepRow(step, textOnly, done = idx < currentIndex, active = idx == currentIndex, todo = idx > currentIndex)
                 }
                 item {
                     Column(
@@ -138,7 +140,8 @@ fun ProcessingScreen(
                         Text("PRIVASI", color = IdColor.Text, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, letterSpacing = 1.sp)
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "Audio dikirim terenkripsi ke layanan transkripsi awan dan dihapus dari server setelah transkrip selesai. Ringkasan disusun oleh agent AI yang dipilih di Pengaturan.",
+                            if (textOnly) "Teks percakapan dikirim ke agent AI yang dipilih di Pengaturan untuk disusun menjadi dokumen. Tidak ada audio yang diproses."
+                            else "Audio dikirim terenkripsi ke layanan transkripsi awan dan dihapus dari server setelah transkrip selesai. Ringkasan disusun oleh agent AI yang dipilih di Pengaturan.",
                             fontSize = 12.5.sp,
                             lineHeight = 18.sp,
                         )
@@ -166,7 +169,13 @@ fun ProcessingScreen(
 }
 
 @Composable
-private fun StepRow(step: ProcessingStep, done: Boolean, active: Boolean, todo: Boolean) {
+private fun StepRow(step: ProcessingStep, textOnly: Boolean, done: Boolean, active: Boolean, todo: Boolean) {
+    val (title, desc) = if (!textOnly) step.title to step.desc else when (step) {
+        ProcessingStep.PREP -> "Membaca percakapan" to "Pesan dan pengirim dari berkas teks."
+        ProcessingStep.TRANSCRIBE -> "Percakapan siap" to "Tanpa transkripsi — teks dipakai apa adanya."
+        ProcessingStep.DIARIZE -> "Mengenali peserta" to "Nama pengirim pesan jadi label pembicara."
+        else -> step.title to step.desc
+    }
     Row(modifier = Modifier.padding(vertical = 15.dp), verticalAlignment = Alignment.Top) {
         Box(modifier = Modifier.width(22.dp), contentAlignment = Alignment.Center) {
             when {
@@ -177,9 +186,9 @@ private fun StepRow(step: ProcessingStep, done: Boolean, active: Boolean, todo: 
         }
         Spacer(Modifier.width(13.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(step.title, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
             Spacer(Modifier.height(3.dp))
-            Text(step.desc, color = IdColor.Neutral700, fontSize = 12.5.sp)
+            Text(desc, color = IdColor.Neutral700, fontSize = 12.5.sp)
         }
     }
 }

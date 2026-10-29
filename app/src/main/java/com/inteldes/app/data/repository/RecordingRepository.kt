@@ -1,43 +1,46 @@
 package com.inteldes.app.data.repository
 
-import com.google.gson.Gson
 import com.inteldes.app.data.audio.AudioTrimmer
-import com.inteldes.app.ui.util.formatMmSs
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.IOException
-import com.inteldes.app.data.db.ActionItemEntity
 import com.inteldes.app.data.db.CategoryEntity
 import com.inteldes.app.data.db.ChatMessageEntity
-import com.inteldes.app.data.db.DecisionEntity
 import com.inteldes.app.data.db.IntelDesDatabase
+import com.inteldes.app.data.db.NoteSectionEntity
 import com.inteldes.app.data.db.NotulensiHistoryEntity
-import com.inteldes.app.data.db.QuestionEntity
+import com.inteldes.app.data.db.NotulensiSnapshot
+import com.inteldes.app.data.db.PhotoEntity
 import com.inteldes.app.data.db.RecordingEntity
 import com.inteldes.app.data.db.RecordingMarkEntity
-import com.inteldes.app.data.db.TopicEntity
+import com.inteldes.app.data.db.SectionCodec
 import com.inteldes.app.data.db.TranscriptSegmentEntity
 import com.inteldes.app.data.db.toDomain
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
 import com.inteldes.app.data.model.DEFAULT_CATEGORIES
-import com.inteldes.app.data.model.NotulensiDensity
+import com.inteldes.app.data.model.LocationInfo
+import com.inteldes.app.data.model.NoteTemplate
 import com.inteldes.app.data.model.Notulensi
+import com.inteldes.app.data.model.NotulensiDensity
 import com.inteldes.app.data.model.NotulensiHistoryEntry
+import com.inteldes.app.data.model.Photo
 import com.inteldes.app.data.model.Recording
 import com.inteldes.app.data.model.RecordingMark
 import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.data.model.TranscriptSegment
 import com.inteldes.app.data.model.WhisperEngine
+import com.inteldes.app.ui.util.formatMmSs
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.IOException
 import java.util.UUID
 
-private val historyGson = Gson()
+const val FALLBACK_CATEGORY = "Lainnya"
 
-/** Single source of truth for recordings + their derived notulensi/transcript/chat, backed by Room. */
+/** Single source of truth for recordings + their derived notulensi/transcript/chat/photos, backed by Room. */
 class RecordingRepository(private val db: IntelDesDatabase) {
 
     fun observeRecordings(): Flow<List<Recording>> =
@@ -62,29 +65,26 @@ class RecordingRepository(private val db: IntelDesDatabase) {
         return true
     }
 
+    /** Recordings in the removed category move to [FALLBACK_CATEGORY] so they stay reachable by filter. */
+    suspend fun deleteCategory(label: String) {
+        if (label == FALLBACK_CATEGORY) return
+        addCategory(FALLBACK_CATEGORY)
+        db.recordingDao().reassignKind(label, FALLBACK_CATEGORY)
+        db.categoryDao().delete(label)
+    }
+
     fun observeRecording(id: String): Flow<Recording?> =
         db.recordingDao().observeOne(id).map { it?.toDomain() }
 
     suspend fun getRecording(id: String): Recording? = db.recordingDao().getOne(id)?.toDomain()
 
-    fun observeNotulensi(id: String): Flow<Notulensi?> {
-        val topics = db.notesDao().observeTopics(id)
-        val decisions = db.notesDao().observeDecisions(id)
-        val questions = db.notesDao().observeQuestions(id)
-        val actions = db.notesDao().observeActionItems(id)
-        val recording = db.recordingDao().observeOne(id)
-        return kotlinx.coroutines.flow.combine(topics, decisions, questions, actions, recording) { t, d, q, a, r ->
-            if (r == null || r.summary == null || r.provider == null) return@combine null
-            Notulensi(
-                summary = r.summary,
-                provider = r.provider,
-                topics = t.map { it.toDomain() },
-                decisions = d.map { it.toDomain() },
-                questions = q.map { it.toDomain() },
-                actions = a.map { it.toDomain() },
-            )
+    fun observeNotulensi(id: String): Flow<Notulensi?> =
+        combine(db.noteSectionDao().observe(id), db.recordingDao().observeOne(id)) { sections, r ->
+            val summary = r?.summary
+            val provider = r?.provider
+            if (summary == null || provider == null) null
+            else Notulensi(summary = summary, provider = provider, sections = sections.map { it.toDomain() })
         }
-    }
 
     fun observeTranscript(id: String): Flow<List<TranscriptSegment>> =
         db.transcriptDao().observeSegments(id).map { list -> list.map { it.toDomain() } }
@@ -92,19 +92,18 @@ class RecordingRepository(private val db: IntelDesDatabase) {
     fun observeChat(id: String): Flow<List<ChatMessage>> =
         db.chatDao().observeMessages(id).map { list -> list.map { it.toDomain() } }
 
+    fun observePhotos(id: String): Flow<List<Photo>> =
+        db.photoDao().observe(id).map { list -> list.map { it.toDomain() } }
+
     suspend fun renameSpeaker(recordingId: String, oldName: String, newName: String) {
         if (newName.isBlank() || oldName == newName) return
         db.transcriptDao().renameSpeaker(recordingId, oldName, newName)
     }
 
-    fun observeDueActionItems(): Flow<List<Pair<Recording, com.inteldes.app.data.model.ActionItem>>> =
-        kotlinx.coroutines.flow.combine(
-            db.recordingDao().observeAll(),
-            db.notesDao().observeAllActionItems(),
-        ) { recs, actions ->
-            val byId = recs.associateBy { it.id }
-            actions.filter { !it.done }.mapNotNull { a -> byId[a.recordingId]?.let { it.toDomain() to a.toDomain() } }
-        }
+    /** Fixes the wording of one transcript line ([index] = its position in the transcript). */
+    suspend fun updateTranscriptText(recordingId: String, index: Int, text: String) {
+        db.transcriptDao().updateText(recordingId, index, text.trim())
+    }
 
     suspend fun createRecording(
         title: String,
@@ -113,13 +112,32 @@ class RecordingRepository(private val db: IntelDesDatabase) {
         audioFilePath: String?,
         audioMimeType: String = "audio/mp4",
         engine: WhisperEngine,
+        template: NoteTemplate,
+        location: LocationInfo? = null,
+        createdAt: Long? = null,
+    ): String = insertRecording(title, kind, durationSec, audioFilePath, audioMimeType, engine, template.id, template.name, location, createdAt)
+
+    private suspend fun insertRecording(
+        title: String,
+        kind: String,
+        durationSec: Int,
+        audioFilePath: String?,
+        audioMimeType: String,
+        engine: WhisperEngine,
+        templateId: String,
+        templateName: String,
+        location: LocationInfo? = null,
+        createdAt: Long? = null,
     ): String {
         val id = UUID.randomUUID().toString()
         db.recordingDao().upsert(
             RecordingEntity(
-                id = id, title = title, kind = kind, createdAt = System.currentTimeMillis(),
+                id = id, title = title, kind = kind, createdAt = createdAt ?: System.currentTimeMillis(),
                 durationSec = durationSec, audioFilePath = audioFilePath, audioMimeType = audioMimeType,
                 status = RecordingStatus.RAW, speakerCount = 0, engine = engine,
+                templateId = templateId, templateName = templateName,
+                locationName = location?.name?.takeIf { it.isNotBlank() },
+                latitude = location?.latitude, longitude = location?.longitude,
             ),
         )
         return id
@@ -127,6 +145,21 @@ class RecordingRepository(private val db: IntelDesDatabase) {
 
     suspend fun setEngine(id: String, engine: WhisperEngine) {
         db.recordingDao().getOne(id)?.let { db.recordingDao().update(it.copy(engine = engine)) }
+    }
+
+    /** Blank clears the location. */
+    suspend fun setLocation(id: String, name: String) {
+        db.recordingDao().getOne(id)?.let {
+            val trimmed = name.trim()
+            db.recordingDao().update(
+                if (trimmed.isEmpty()) it.copy(locationName = null, latitude = null, longitude = null)
+                else it.copy(locationName = trimmed),
+            )
+        }
+    }
+
+    suspend fun setTemplate(id: String, template: NoteTemplate) {
+        db.recordingDao().getOne(id)?.let { db.recordingDao().update(it.copy(templateId = template.id, templateName = template.name)) }
     }
 
     suspend fun markWorking(id: String) {
@@ -146,8 +179,8 @@ class RecordingRepository(private val db: IntelDesDatabase) {
     }
 
     suspend fun saveNotulensi(id: String, provider: AiProvider, notulensi: Notulensi, density: NotulensiDensity) {
-        // Archive whatever notulensi is about to be overwritten — regenerating (e.g. to try
-        // a different density) shouldn't destroy the previous result, since the whole point
+        // Archive whatever notulensi is about to be overwritten — regenerating (with another
+        // density or template) shouldn't destroy the previous result, since the whole point
         // is to be able to compare them.
         val previous = db.recordingDao().getOne(id)
         if (previous?.summary != null && previous.provider != null && previous.notulensiDensity != null) {
@@ -158,18 +191,20 @@ class RecordingRepository(private val db: IntelDesDatabase) {
                         generatedAt = previous.notesGeneratedAt ?: System.currentTimeMillis(),
                         density = previous.notulensiDensity,
                         provider = previous.provider,
-                        notulensiJson = historyGson.toJson(previousNotulensi),
+                        notulensiJson = NotulensiSnapshot.encode(previousNotulensi, previous.templateName),
                     ),
                 )
             }
         }
 
-        db.notesDao().replaceNotes(
-            recordingId = id,
-            topics = notulensi.topics.mapIndexed { i, t -> TopicEntity(recordingId = id, orderIndex = i, timestampLabel = t.timestampLabel, timestampSec = t.timestampSec, title = t.title, body = t.body) },
-            decisions = notulensi.decisions.mapIndexed { i, d -> DecisionEntity(recordingId = id, orderIndex = i, text = d.text) },
-            questions = notulensi.questions.mapIndexed { i, q -> QuestionEntity(recordingId = id, orderIndex = i, question = q.question, status = q.status, note = q.note) },
-            actions = notulensi.actions.mapIndexed { i, a -> ActionItemEntity(recordingId = id, orderIndex = i, task = a.task, pic = a.pic, due = a.due, sourceTimestampLabel = a.sourceTimestampLabel, done = a.done) },
+        db.noteSectionDao().replace(
+            id,
+            notulensi.sections.mapIndexed { i, s ->
+                NoteSectionEntity(
+                    recordingId = id, orderIndex = i, title = s.title,
+                    type = SectionCodec.typeOf(s.content), payload = SectionCodec.encode(s.content),
+                )
+            },
         )
         db.recordingDao().getOne(id)?.let {
             db.recordingDao().update(
@@ -183,8 +218,29 @@ class RecordingRepository(private val db: IntelDesDatabase) {
 
     fun observeNotulensiHistory(id: String): Flow<List<NotulensiHistoryEntry>> =
         db.notulensiHistoryDao().observeForRecording(id).map { list ->
-            list.map { NotulensiHistoryEntry(it.id, it.generatedAt, it.density, historyGson.fromJson(it.notulensiJson, Notulensi::class.java)) }
+            list.mapNotNull { row ->
+                // A snapshot that can't be decoded is skipped rather than taking the whole screen down.
+                runCatching { NotulensiSnapshot.decode(row.notulensiJson, row.provider) }.getOrNull()?.let { (note, templateName) ->
+                    NotulensiHistoryEntry(row.id, row.generatedAt, row.density, templateName, note)
+                }
+            }
         }
+
+    /** [takenAtSec] is the offset into the audio when the photo was added; null when added after the fact. */
+    suspend fun addPhoto(recordingId: String, file: File, takenAtSec: Int?) {
+        db.photoDao().insert(
+            PhotoEntity(recordingId = recordingId, filePath = file.absolutePath, takenAtSec = takenAtSec, createdAt = System.currentTimeMillis()),
+        )
+    }
+
+    suspend fun updatePhotoCaption(photoId: Long, caption: String) {
+        db.photoDao().updateCaption(photoId, caption.trim())
+    }
+
+    suspend fun deletePhoto(photo: Photo) {
+        db.photoDao().delete(photo.id)
+        File(photo.filePath).delete()
+    }
 
     suspend fun addChatMessage(recordingId: String, isUser: Boolean, text: String) {
         val count = db.chatDao().count(recordingId)
@@ -206,13 +262,16 @@ class RecordingRepository(private val db: IntelDesDatabase) {
             val dest = File(outputDir, "trim_${System.currentTimeMillis()}.m4a")
             AudioTrimmer.trim(sourceFile, dest, startSec, endSec)
 
-            val id = createRecording(
+            val id = insertRecording(
                 title = "${source.title} (potongan ${formatMmSs(startSec)}–${formatMmSs(endSec)})",
                 kind = source.kind,
                 durationSec = endSec - startSec,
                 audioFilePath = dest.absolutePath,
                 audioMimeType = "audio/mp4",
                 engine = source.engine,
+                templateId = source.templateId,
+                templateName = source.templateName,
+                location = source.locationName?.let { LocationInfo(it, source.latitude, source.longitude) },
             )
             val now = System.currentTimeMillis()
             db.recordingMarkDao().observeForRecording(source.id).first()
@@ -246,10 +305,12 @@ class RecordingRepository(private val db: IntelDesDatabase) {
         db.recordingMarkDao().delete(RecordingMarkEntity(id = mark.id, recordingId = recordingId, timestampSec = mark.timestampSec, label = mark.label, createdAt = 0))
     }
 
-    /** Deletes the recording row (cascades to its transcript/notulensi/chat) and its audio file. */
+    /** Deletes the recording row (cascades to its transcript/notulensi/chat/photo rows), its audio file and photo files. */
     suspend fun deleteRecording(id: String) {
         val entity = db.recordingDao().getOne(id) ?: return
-        entity.audioFilePath?.let { java.io.File(it).delete() }
+        entity.audioFilePath?.let { File(it).delete() }
+        // Photo rows cascade with the recording, but the image files don't.
+        db.photoDao().observe(id).first().forEach { File(it.filePath).delete() }
         db.recordingDao().delete(entity)
     }
 }

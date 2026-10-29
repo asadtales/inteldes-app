@@ -5,6 +5,9 @@ import android.content.pm.PackageManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,11 +15,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -41,7 +46,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inteldes.app.data.audio.RecorderState
 import com.inteldes.app.data.model.WhisperEngine
+import com.inteldes.app.ui.components.MicPickerDialog
+import com.inteldes.app.ui.components.PhotoImage
+import com.inteldes.app.ui.components.PhotoPickerButtons
 import com.inteldes.app.ui.components.RecordingDetailsDialog
+import com.inteldes.app.ui.components.rememberPhotoPicker
 import com.inteldes.app.ui.theme.IdColor
 import com.inteldes.app.ui.util.formatRecordTimer
 
@@ -84,7 +93,16 @@ fun RecordScreen(
         onDispose { VolumeMarkBridge.onVolumeKey = null }
     }
 
+    val photoPicker = rememberPhotoPicker { uri, temporary -> vm.addPhoto(uri, temporary) }
+
     var showSaveDialog by remember { mutableStateOf(false) }
+    var showMicPicker by remember { mutableStateOf(false) }
+    var pendingMicKey by remember { mutableStateOf<String?>(null) }
+    // Talking to a Bluetooth earbud needs the "nearby devices" permission on Android 12+.
+    val bluetoothPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        pendingMicKey?.let { vm.selectMic(it) }
+        pendingMicKey = null
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(IdColor.Neutral900)) {
         Row(
@@ -155,6 +173,29 @@ fun RecordScreen(
             )
         }
 
+        // Which microphone is capturing. Shows what Android is really using, and warns when the chosen one isn't connected.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .padding(horizontal = 20.dp)
+                .padding(top = 12.dp)
+                .fillMaxWidth()
+                .background(IdColor.Neutral900)
+                .clickable { showMicPicker = true }
+                .padding(horizontal = 12.dp, vertical = 11.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("SUMBER MIKROFON", color = IdColor.Neutral500, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp)
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    micSummary(state),
+                    color = if (state.selectedMicMissing) IdColor.Accent else IdColor.Neutral100,
+                    fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                )
+            }
+            Text("UBAH ›", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+        }
+
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
             Text("MESIN TRANSKRIP", color = IdColor.Neutral500, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp)
             Spacer(Modifier.height(9.dp))
@@ -173,11 +214,16 @@ fun RecordScreen(
             }
         }
 
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 20.dp, vertical = 6.dp)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+        ) {
             if (state.marks.isNotEmpty()) {
                 Text("PENANDA", color = IdColor.Neutral500, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp)
                 Spacer(Modifier.height(9.dp))
-                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                     state.marks.forEach { sec ->
                         Text(
                             formatRecordTimer(sec),
@@ -188,6 +234,33 @@ fun RecordScreen(
                         )
                     }
                 }
+                Spacer(Modifier.height(16.dp))
+            }
+            Text(
+                "FOTO DOKUMENTASI (${state.photos.size})",
+                color = IdColor.Neutral500, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp,
+            )
+            Spacer(Modifier.height(9.dp))
+            PhotoPickerButtons(photoPicker, onDark = true)
+            Spacer(Modifier.height(10.dp))
+            if (state.photos.isEmpty()) {
+                Text(
+                    "Foto yang ditambahkan saat rapat akan masuk ke bagian Dokumentasi di notulensi, lengkap dengan menit pengambilannya.",
+                    color = IdColor.Neutral400,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                )
+            } else {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    state.photos.forEach { photo -> PendingPhotoThumb(photo, onRemove = { vm.removePhoto(photo) }) }
+                }
+            }
+            state.photoError?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = IdColor.Accent, fontSize = 11.5.sp)
             }
         }
 
@@ -222,14 +295,38 @@ fun RecordScreen(
         }
     }
 
+    if (showMicPicker) {
+        MicPickerDialog(
+            options = state.mics,
+            selectedKey = state.selectedMicKey,
+            activeName = state.activeMic,
+            onSelect = { key ->
+                showMicPicker = false
+                val isBluetooth = state.mics.firstOrNull { it.key == key }?.kind == com.inteldes.app.data.audio.MicKind.BLUETOOTH
+                val needsPermission = isBluetooth && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+                if (needsPermission) {
+                    pendingMicKey = key
+                    bluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                } else {
+                    vm.selectMic(key)
+                }
+            },
+            onDismiss = { showMicPicker = false },
+        )
+    }
+
     if (showSaveDialog) {
         RecordingDetailsDialog(
             categories = categories,
+            choices = state.templateChoices,
+            initialLocation = state.detectedLocation,
             onAddCategory = vm::addCategory,
+            onDeleteCategory = vm::deleteCategory,
             onDismiss = { showSaveDialog = false },
-            onConfirm = { title, kind ->
+            onConfirm = { title, kind, template, location ->
                 showSaveDialog = false
-                vm.stopAndProcess(title, kind)
+                vm.stopAndProcess(title, kind, template, location)
             },
         )
     }
@@ -284,3 +381,38 @@ private fun drawWaveform(history: List<Int>, animated: Boolean, scope: DrawScope
     }
 }
 
+@Composable
+private fun PendingPhotoThumb(photo: PendingPhoto, onRemove: () -> Unit) {
+    Box(modifier = Modifier.size(76.dp)) {
+        PhotoImage(photo.file.absolutePath, Modifier.fillMaxSize())
+        Text(
+            formatRecordTimer(photo.offsetSec),
+            color = IdColor.White,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.BottomStart).background(IdColor.Neutral900.copy(alpha = 0.75f)).padding(horizontal = 4.dp, vertical = 2.dp),
+        )
+        Icon(
+            Icons.Filled.Close,
+            contentDescription = "Hapus foto",
+            tint = IdColor.White,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .background(IdColor.Neutral900.copy(alpha = 0.75f))
+                .clickable(onClick = onRemove)
+                .padding(3.dp)
+                .size(14.dp),
+        )
+    }
+}
+
+/** One line for the mic row: what is capturing now, or what will be used / why the pick isn't active. */
+private fun micSummary(state: RecordUiState): String {
+    val chosen = state.mics.firstOrNull { it.key == state.selectedMicKey }
+    return when {
+        state.selectedMicMissing -> "Mic pilihan tidak tersambung — memakai otomatis"
+        state.recorderState != RecorderState.IDLE && state.activeMic != null -> state.activeMic
+        chosen != null -> chosen.label
+        else -> "Otomatis" + (state.mics.firstOrNull { it.kind == com.inteldes.app.data.audio.MicKind.BLUETOOTH }?.let { " (${it.label} tersambung)" } ?: "")
+    }
+}

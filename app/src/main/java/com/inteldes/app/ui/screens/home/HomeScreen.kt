@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
@@ -34,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,6 +54,8 @@ import com.inteldes.app.data.audio.RecorderState
 import com.inteldes.app.data.model.Recording
 import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.ui.components.Pill
+import com.inteldes.app.ui.components.CategoryField
+import com.inteldes.app.ui.components.CategoryPickerDialog
 import com.inteldes.app.ui.components.RecordingDetailsDialog
 import com.inteldes.app.ui.theme.IdColor
 import com.inteldes.app.ui.util.formatDuration
@@ -67,6 +71,7 @@ fun HomeScreen(
     onOpenRecording: (String) -> Unit,
     onRecord: () -> Unit,
     onSettings: () -> Unit,
+    onContexts: () -> Unit,
     onUploadReady: (String) -> Unit,
 ) {
     val vm: HomeViewModel = viewModel(factory = factory)
@@ -76,6 +81,13 @@ fun HomeScreen(
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { vm.onFilePicked(it) }
     }
+    val pickerContext = LocalContext.current
+    val textPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { picked ->
+            vm.onTextPicked(picked, displayNameOf(pickerContext, picked))
+        }
+    }
+    var showUploadChoice by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         vm.onUploadProcessed.collect { id -> onUploadReady(id) }
@@ -105,16 +117,11 @@ fun HomeScreen(
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text("INTELDES", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, letterSpacing = 1.sp)
-                    Spacer(Modifier.width(7.dp))
-                    Text(
-                        "DESA TALES",
-                        color = IdColor.Neutral600,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 9.5.sp,
-                        letterSpacing = 1.sp,
-                    )
                 }
                 Spacer(Modifier.weight(1f))
+                IconButton(onClick = onContexts) {
+                    Icon(Icons.Filled.Bookmarks, contentDescription = "Konteks", tint = IdColor.Text)
+                }
                 IconButton(onClick = onSettings) {
                     Icon(Icons.Filled.Settings, contentDescription = "Pengaturan", tint = IdColor.Text)
                 }
@@ -176,31 +183,28 @@ fun HomeScreen(
         }
         androidx.compose.material3.HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
 
+        var pickingCategory by remember { mutableStateOf(false) }
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 11.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp),
         ) {
-            state.filters.forEach { f ->
-                val on = state.filter == f
-                Box(
-                    modifier = Modifier
-                        .clickable { vm.setFilter(f) }
-                        .background(if (on) IdColor.Accent else Color.Transparent)
-                        .let { if (!on) it.hairline(IdColor.Divider) else it }
-                        .padding(horizontal = 11.dp, vertical = 5.dp),
-                ) {
-                    Text(
-                        f.uppercase(),
-                        color = if (on) IdColor.White else IdColor.Neutral800,
-                        fontWeight = if (on) FontWeight.Bold else FontWeight.SemiBold,
-                        fontSize = 11.sp,
-                        letterSpacing = 0.6.sp,
-                    )
-                }
-            }
+            CategoryField("KATEGORI", state.filter, onClick = { pickingCategory = true })
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${state.visible.size} rekaman",
+                color = IdColor.Neutral600, fontSize = 11.sp,
+            )
+        }
+        if (pickingCategory) {
+            CategoryPickerDialog(
+                categories = state.categories,
+                selected = state.filter,
+                allLabel = "Semua",
+                onSelect = { vm.setFilter(it); pickingCategory = false },
+                onAdd = vm::addCategory,
+                onDelete = vm::deleteCategory,
+                onDismiss = { pickingCategory = false },
+            )
         }
         androidx.compose.material3.HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
 
@@ -235,7 +239,7 @@ fun HomeScreen(
                     modifier = Modifier
                         .weight(0.8f)
                         .hairline(IdColor.Divider)
-                        .clickable(enabled = !state.importing && !isRecording) { filePicker.launch(arrayOf("audio/*")) }
+                        .clickable(enabled = !state.importing && !isRecording) { showUploadChoice = true }
                         .padding(vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -253,13 +257,53 @@ fun HomeScreen(
         }
     }
 
+    if (showUploadChoice) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showUploadChoice = false },
+            title = { Text("Unggah apa?", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    UploadChoiceRow("Berkas audio", "Rekaman rapat (m4a, mp3, wav…) — ditranskrip lalu dibuat notulensi.") {
+                        showUploadChoice = false
+                        filePicker.launch(arrayOf("audio/*"))
+                    }
+                    UploadChoiceRow("Teks percakapan", "Ekspor chat WhatsApp (.txt / .zip) atau teks \"Nama: ucapan\" — langsung dibuat notulensi, tanpa transkripsi.") {
+                        showUploadChoice = false
+                        textPicker.launch(arrayOf("text/*", "application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                    }
+                }
+            },
+            confirmButton = {
+                Text("Batal", color = IdColor.Neutral700, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { showUploadChoice = false }.padding(10.dp))
+            },
+        )
+    }
+
+    state.pendingChat?.let { chat ->
+        val choices by vm.templateChoices.collectAsStateWithLifecycle()
+        RecordingDetailsDialog(
+            dialogTitle = "Beri nama percakapan ini",
+            categories = state.categories,
+            choices = choices,
+            onAddCategory = vm::addCategory,
+            onDeleteCategory = vm::deleteCategory,
+            onDismiss = { vm.cancelPendingChat() },
+            onConfirm = { title, kind, template, location -> vm.confirmChat(title, kind, template, location) },
+            initialTitle = state.pendingChatName,
+            summary = "${chat.segments.size} pesan · ${chat.participants} peserta",
+        )
+    }
+
     state.pendingUpload?.let {
+        val choices by vm.templateChoices.collectAsStateWithLifecycle()
         RecordingDetailsDialog(
             dialogTitle = "Beri nama rekaman ini",
             categories = state.categories,
+            choices = choices,
             onAddCategory = vm::addCategory,
+            onDeleteCategory = vm::deleteCategory,
             onDismiss = { vm.cancelPendingUpload() },
-            onConfirm = { title, kind -> vm.confirmUpload(title, kind) },
+            onConfirm = { title, kind, template, location -> vm.confirmUpload(title, kind, template, location) },
             engine = state.uploadEngine,
             onEngineChange = vm::setUploadEngine,
         )
@@ -310,3 +354,25 @@ private fun RecordingRow(r: Recording, onClick: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun UploadChoiceRow(title: String, desc: String, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+            .background(IdColor.Neutral100)
+            .clickable(onClick = onClick)
+            .padding(13.dp),
+    ) {
+        Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Spacer(Modifier.height(3.dp))
+        Text(desc, color = IdColor.Neutral700, fontSize = 11.5.sp, lineHeight = 16.sp)
+    }
+}
+
+private fun displayNameOf(context: android.content.Context, uri: android.net.Uri): String? = runCatching {
+    context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+        if (c.moveToFirst()) c.getString(0) else null
+    }
+}.getOrNull()

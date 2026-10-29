@@ -4,6 +4,16 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+val envFile = rootProject.file(".env")
+val env: Map<String, String> = if (envFile.exists()) {
+    envFile.readLines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.startsWith("#") && it.contains("=") }
+        .associate { it.substringBefore("=").trim() to it.substringAfter("=").trim() }
+} else emptyMap()
+
+fun buildConfigString(name: String) = "\"" + (env[name] ?: "").replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 android {
     namespace = "com.inteldes.app"
     compileSdk = 34
@@ -14,6 +24,10 @@ android {
         targetSdk = 34
         versionCode = 2
         versionName = "1.1.0"
+
+        buildConfigField("String", "EMBEDDED_GEMINI_KEY", buildConfigString("GEMINI_API_KEY"))
+        buildConfigField("String", "EMBEDDED_CLAUDE_KEY", buildConfigString("CLAUDE_API_KEY"))
+        buildConfigField("String", "EMBEDDED_DEEPGRAM_KEY", buildConfigString("DEEPGRAM_API_KEY"))
 
         // arm64-v8a covers virtually every real device sold since ~2017 (incl. the
         // Galaxy M51 this app is tested on); x86_64 is only here so the on-device
@@ -51,6 +65,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
     composeOptions {
@@ -81,6 +96,9 @@ dependencies {
 
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
+    // Image loading for photo thumbnails
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
@@ -98,6 +116,10 @@ dependencies {
 
     // Security (encrypted prefs for API keys)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Google sign-in / authorisation for Drive sync (each user connects their own account)
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

@@ -5,11 +5,40 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.inteldes.app.data.model.AiProvider
+import com.inteldes.app.data.model.BuiltInTemplates
 import com.inteldes.app.data.model.NotulensiDensity
-import com.inteldes.app.data.model.QuestionStatus
 import com.inteldes.app.data.model.RecordingStatus
+import com.inteldes.app.data.model.SectionType
 import com.inteldes.app.data.model.WhisperEngine
 import java.util.UUID
+
+/**
+ * A saved "knowledge context": the merged text of several recordings' transcripts/notulensi, kept
+ * (and freely editable) independently of those recordings so it survives them being trimmed or deleted.
+ */
+@Entity(tableName = "knowledge_contexts")
+data class KnowledgeContextEntity(
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val text: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+/** Which recordings fed a context — for display only; no foreign key to recordings on purpose. */
+@Entity(
+    tableName = "context_sources",
+    foreignKeys = [ForeignKey(entity = KnowledgeContextEntity::class, parentColumns = ["id"], childColumns = ["contextId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("contextId")],
+)
+data class ContextSourceEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val contextId: String,
+    val recordingId: String,
+    val recordingTitle: String,
+    val kind: String,
+    val addedAt: Long,
+)
 
 @Entity(tableName = "categories", indices = [Index("label", unique = true)])
 data class CategoryEntity(
@@ -30,6 +59,8 @@ data class RecordingEntity(
     val status: RecordingStatus,
     val speakerCount: Int,
     val engine: WhisperEngine,
+    val templateId: String = BuiltInTemplates.STANDARD_ID,
+    val templateName: String = BuiltInTemplates.standard.name,
     val summary: String? = null,
     val provider: AiProvider? = null,
     val notesGeneratedAt: Long? = null,
@@ -37,17 +68,15 @@ data class RecordingEntity(
     /** Density the *current* notulensi (above) was generated with — recorded so
      * regenerating with a different density can archive the outgoing one correctly. */
     val notulensiDensity: NotulensiDensity? = null,
+    /** Where the meeting took place: free text (auto-filled from GPS, editable) plus the raw fix. */
+    val locationName: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
 )
 
-/**
- * A past notulensi generation, kept so switching density (Ringkas/Sedang/Detail) and
- * regenerating doesn't destroy the previous result — stored as one JSON blob rather than
- * mirroring topics/decisions/questions/actions into their own history tables, since this
- * is write-once/read-whole and never queried by its internals.
- */
 /** A user-tapped "mark this moment" bookmark, made during recording (or later on the
  * transcript timeline) — anchors a shortcut selection when transcribing only part of a
- * long recording (see [NotulensiHistoryEntity] siblings in the repository layer). */
+ * long recording. */
 @Entity(
     tableName = "recording_marks",
     foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
@@ -61,6 +90,11 @@ data class RecordingMarkEntity(
     val createdAt: Long,
 )
 
+/**
+ * A past notulensi generation, kept so switching density or template and regenerating doesn't
+ * destroy the previous result — stored as one JSON snapshot (see NotulensiSnapshot in the
+ * repository) rather than mirrored into its own section rows, since this is write-once/read-whole.
+ */
 @Entity(
     tableName = "notulensi_history",
     foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
@@ -75,61 +109,43 @@ data class NotulensiHistoryEntity(
     val notulensiJson: String,
 )
 
+/** One generated section of a note; [payload] is JSON shaped by [type] (see [SectionCodec]). */
 @Entity(
-    tableName = "topics",
+    tableName = "note_sections",
     foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("recordingId")],
 )
-data class TopicEntity(
+data class NoteSectionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val recordingId: String,
     val orderIndex: Int,
-    val timestampLabel: String,
-    val timestampSec: Int,
     val title: String,
-    val body: String,
+    val type: SectionType,
+    val payload: String,
+)
+
+/** User-created templates only; built-ins live in code ([BuiltInTemplates]). */
+@Entity(tableName = "templates")
+data class TemplateEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val description: String,
+    val sectionsJson: String,
+    val createdAt: Long,
 )
 
 @Entity(
-    tableName = "decisions",
+    tableName = "photos",
     foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("recordingId")],
 )
-data class DecisionEntity(
+data class PhotoEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val recordingId: String,
-    val orderIndex: Int,
-    val text: String,
-)
-
-@Entity(
-    tableName = "questions",
-    foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
-    indices = [Index("recordingId")],
-)
-data class QuestionEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val recordingId: String,
-    val orderIndex: Int,
-    val question: String,
-    val status: QuestionStatus,
-    val note: String,
-)
-
-@Entity(
-    tableName = "action_items",
-    foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
-    indices = [Index("recordingId")],
-)
-data class ActionItemEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val recordingId: String,
-    val orderIndex: Int,
-    val task: String,
-    val pic: String,
-    val due: String,
-    val sourceTimestampLabel: String,
-    val done: Boolean = false,
+    val filePath: String,
+    val takenAtSec: Int?,
+    val caption: String = "",
+    val createdAt: Long,
 )
 
 @Entity(

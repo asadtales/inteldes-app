@@ -2,8 +2,10 @@ package com.inteldes.app.data.network
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
+import com.inteldes.app.data.model.NoteTemplate
 import com.inteldes.app.data.model.Notulensi
 import com.inteldes.app.data.model.NotulensiDensity
 import com.inteldes.app.data.model.OutputLanguage
@@ -30,10 +32,12 @@ class GeminiClient(private val apiKey: String, private val model: String = MODEL
         meetingTitle: String,
         segments: List<TranscriptSegment>,
         density: NotulensiDensity,
+        template: NoteTemplate,
         outputLanguage: OutputLanguage = OutputLanguage.INDONESIA,
+        location: String? = null,
     ): Notulensi =
         withContext(Dispatchers.IO) {
-            val prompt = buildTranscriptPrompt(meetingTitle, segments, density, outputLanguage)
+            val prompt = buildTranscriptPrompt(meetingTitle, segments, density, template, outputLanguage, location)
             val body = JsonObject().apply {
                 add(
                     "contents",
@@ -50,14 +54,15 @@ class GeminiClient(private val apiKey: String, private val model: String = MODEL
                     "generationConfig",
                     JsonObject().apply {
                         addProperty("responseMimeType", "application/json")
-                        add("responseSchema", notulensiJsonSchema())
+                        add("responseSchema", toGeminiSchema(notulensiJsonSchema(template)))
                         addProperty("temperature", 0.4)
                     },
                 )
             }
             val text = callText(body)
-            val json = HttpClient.gson.fromJson(text, NotulensiJson::class.java)
-            json.toDomain(AiProvider.GEMINI)
+            val root = runCatching { JsonParser.parseString(text).asJsonObject }.getOrNull()
+                ?: throw ApiException("Gemini mengembalikan format yang tidak bisa dibaca.")
+            parseNotulensi(root, template, AiProvider.GEMINI)
         }
 
     suspend fun ask(
@@ -66,11 +71,17 @@ class GeminiClient(private val apiKey: String, private val model: String = MODEL
         notulensi: Notulensi?,
         history: List<ChatMessage>,
         outputLanguage: OutputLanguage = OutputLanguage.INDONESIA,
+        extraContext: String? = null,
     ): String =
         withContext(Dispatchers.IO) {
             val context = buildString {
-                appendLine("Kamu menjawab pertanyaan tentang satu rapat desa, berdasarkan transkrip berikut.")
+                appendLine("Kamu menjawab pertanyaan tentang satu rapat, berdasarkan transkrip berikut.")
                 appendLine("Jawab dalam ${outputLanguage.promptName}.")
+                extraContext?.takeIf { it.isNotBlank() }?.let {
+                    appendLine("Berikut KONTEKS TAMBAHAN dari rapat-rapat sebelumnya (pengetahuan latar, bukan rapat ini):")
+                    appendLine(it)
+                    appendLine("--- akhir konteks tambahan ---")
+                }
                 notulensi?.let { appendLine("Ringkasan rapat: ${it.summary}") }
                 appendLine("Transkrip:")
                 appendLine(transcript.joinToString("\n") { "[${formatTimestamp(it.timestampSec)}] ${it.speaker}: ${it.text}" })
@@ -100,6 +111,25 @@ class GeminiClient(private val apiKey: String, private val model: String = MODEL
             val body = JsonObject().apply { add("contents", contents) }
             callText(body)
         }
+
+    /** Free-form chat: [system] instructions, prior [history], then [message]. Used by the Konteks screen. */
+    suspend fun chat(system: String, history: List<ChatMessage>, message: String): String = withContext(Dispatchers.IO) {
+        fun turn(role: String, text: String) = JsonObject().apply {
+            addProperty("role", role)
+            add("parts", JsonArray().apply { add(JsonObject().apply { addProperty("text", text) }) })
+        }
+        val contents = JsonArray().apply {
+            history.forEach { add(turn(if (it.isUser) "user" else "model", it.text)) }
+            add(turn("user", message))
+        }
+        val body = JsonObject().apply {
+            add("systemInstruction", JsonObject().apply {
+                add("parts", JsonArray().apply { add(JsonObject().apply { addProperty("text", system) }) })
+            })
+            add("contents", contents)
+        }
+        callText(body)
+    }
 
     private suspend fun callText(body: JsonObject): String {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"

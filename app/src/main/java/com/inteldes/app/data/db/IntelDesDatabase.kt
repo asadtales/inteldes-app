@@ -8,31 +8,41 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
+/**
+ * Bump [version] on EVERY schema change AND add a real migration: Room refuses to open a database
+ * whose layout differs from the declared one but carries the same version number (crash on launch
+ * for anyone who had an earlier build installed), and the destructive fallback below would then
+ * silently delete every recording instead of migrating it.
+ */
 @Database(
     entities = [
         RecordingEntity::class,
-        TopicEntity::class,
-        DecisionEntity::class,
-        QuestionEntity::class,
-        ActionItemEntity::class,
+        NoteSectionEntity::class,
+        TemplateEntity::class,
+        PhotoEntity::class,
         TranscriptSegmentEntity::class,
         ChatMessageEntity::class,
         CategoryEntity::class,
         NotulensiHistoryEntity::class,
         RecordingMarkEntity::class,
+        KnowledgeContextEntity::class,
+        ContextSourceEntity::class,
     ],
-    version = 4,
+    version = 7,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
 abstract class IntelDesDatabase : RoomDatabase() {
     abstract fun recordingDao(): RecordingDao
-    abstract fun notesDao(): NotesDao
+    abstract fun noteSectionDao(): NoteSectionDao
+    abstract fun templateDao(): TemplateDao
+    abstract fun photoDao(): PhotoDao
     abstract fun transcriptDao(): TranscriptDao
     abstract fun chatDao(): ChatDao
     abstract fun categoryDao(): CategoryDao
     abstract fun notulensiHistoryDao(): NotulensiHistoryDao
     abstract fun recordingMarkDao(): RecordingMarkDao
+    abstract fun contextDao(): ContextDao
 
     companion object {
         @Volatile private var instance: IntelDesDatabase? = null
@@ -77,7 +87,7 @@ abstract class IntelDesDatabase : RoomDatabase() {
                     context.applicationContext,
                     IntelDesDatabase::class.java,
                     "inteldes.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).fallbackToDestructiveMigration().build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).fallbackToDestructiveMigration().build().also { instance = it }
             }
     }
 }

@@ -11,3 +11,7 @@ local.properties
 /app/build
 /app/release
 *.apk
+
+# secrets embedded into the APK at build time
+.env
+.env.txt

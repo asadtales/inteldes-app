@@ -6,21 +6,31 @@ import com.inteldes.app.data.db.IntelDesDatabase
 import com.inteldes.app.data.prefs.AppSettingsStore
 import com.inteldes.app.data.prefs.SecurePrefs
 import com.inteldes.app.data.repository.RecordingRepository
+import com.inteldes.app.data.sync.DriveAuth
+import com.inteldes.app.data.sync.SyncStore
+import com.inteldes.app.data.work.SyncWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import com.inteldes.app.data.repository.TemplateRepository
 
 /** Simple manual service locator — small enough app that a DI framework is unneeded ceremony. */
 class IntelDesApp : Application() {
     val database: IntelDesDatabase by lazy { IntelDesDatabase.get(this) }
     val repository: RecordingRepository by lazy { RecordingRepository(database) }
+    val templateRepository: TemplateRepository by lazy { TemplateRepository(database.templateDao()) }
+    val contextRepository: com.inteldes.app.data.repository.ContextRepository by lazy { com.inteldes.app.data.repository.ContextRepository(database, repository) }
     val securePrefs: SecurePrefs by lazy { SecurePrefs(this) }
     val settingsStore: AppSettingsStore by lazy { AppSettingsStore(this) }
     val audioRecorder: AudioRecorderManager by lazy { AudioRecorderManager(this) }
+    val syncStore: SyncStore by lazy { SyncStore(this) }
+    val driveAuth: DriveAuth by lazy { DriveAuth(this) }
 
     override fun onCreate() {
         super.onCreate()
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch { repository.ensureDefaultCategories() }
+        // Pick up changes made on other devices (and push ours) whenever the app is opened.
+        SyncWorker.enqueue(this)
     }
 }

@@ -22,6 +22,10 @@ import com.inteldes.app.ui.screens.processing.ProcessingScreen
 import com.inteldes.app.ui.screens.record.RecordScreen
 import com.inteldes.app.ui.screens.settings.SettingsScreen
 import com.inteldes.app.data.work.ProcessRecordingWorker
+import com.inteldes.app.ui.screens.templates.TemplatesScreen
+import com.inteldes.app.ui.screens.contexts.ContextDetailScreen
+import com.inteldes.app.ui.screens.contexts.ContextsScreen
+import com.inteldes.app.ui.contextDetailViewModelFactory
 
 @Composable
 fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNavController(), recordShortcutToken: Int = 0) {
@@ -44,6 +48,7 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
                 onOpenRecording = { id -> navController.navigate(Routes.Detail.of(id)) },
                 onRecord = { navController.navigate(Routes.Record.route) { launchSingleTop = true } },
                 onSettings = { navController.navigate(Routes.Settings.route) },
+                onContexts = { navController.navigate(Routes.Contexts.route) },
                 onUploadReady = { id -> navController.navigate(Routes.Processing.of(id)) },
             )
         }
@@ -119,7 +124,32 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
         }
 
         composable(Routes.Settings.route) {
-            SettingsScreen(factory = appFactory, onBack = { navController.popBackStack() })
+            SettingsScreen(
+                factory = appFactory,
+                onBack = { navController.popBackStack() },
+                onOpenTemplates = { navController.navigate(Routes.Templates.route) },
+            )
+        }
+
+        composable(Routes.Contexts.route) {
+            ContextsScreen(
+                factory = appFactory,
+                onBack = { navController.popBackStack() },
+                onOpen = { id -> navController.navigate(Routes.ContextDetail.of(id)) },
+            )
+        }
+
+        composable(
+            route = Routes.ContextDetail.route,
+            arguments = listOf(navArgument("contextId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val contextId = backStackEntry.arguments?.getString("contextId") ?: return@composable
+            val factory = remember(contextId) { contextDetailViewModelFactory(app, contextId) }
+            ContextDetailScreen(factory = factory, onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.Templates.route) {
+            TemplatesScreen(factory = appFactory, onBack = { navController.popBackStack() })
         }
     }
 }

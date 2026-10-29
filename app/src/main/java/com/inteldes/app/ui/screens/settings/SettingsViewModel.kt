@@ -1,5 +1,6 @@
 package com.inteldes.app.ui.screens.settings
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inteldes.app.data.model.AiProvider
@@ -9,6 +10,12 @@ import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.data.prefs.AppSettings
 import com.inteldes.app.data.prefs.AppSettingsStore
 import com.inteldes.app.data.prefs.SecurePrefs
+import com.inteldes.app.data.repository.TemplateRepository
+import com.inteldes.app.data.sync.DriveAuth
+import com.inteldes.app.data.sync.DriveClient
+import com.inteldes.app.data.sync.SyncSettings
+import com.inteldes.app.data.sync.SyncStore
+import com.inteldes.app.data.work.SyncWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +27,9 @@ data class KeyFields(
     val geminiKey: String,
     val claudeKey: String,
     val whisperKey: String,
+    val geminiEmbedded: Boolean = false,
+    val claudeEmbedded: Boolean = false,
+    val whisperEmbedded: Boolean = false,
 )
 
 data class SettingsUiState(
@@ -27,18 +37,46 @@ data class SettingsUiState(
     val advancedOpen: Boolean = false,
     val keys: KeyFields = KeyFields("", "", ""),
     val rosterDialogOpen: Boolean = false,
+    val defaultTemplateName: String = "Notulensi Standar",
 )
 
 class SettingsViewModel(
+    private val appContext: Context,
     private val store: AppSettingsStore,
     private val securePrefs: SecurePrefs,
+    templateRepository: TemplateRepository,
+    private val syncStore: SyncStore,
+    private val driveAuth: DriveAuth,
 ) : ViewModel() {
+
+    /** Google Drive link + options of THIS device (every device connects its own account). */
+    val sync: StateFlow<SyncSettings> = syncStore.settings
+
+    fun authRequest() = driveAuth.request()
+
+    /** Called with the access token once the user granted Drive access in the Google consent screen. */
+    fun onDriveAuthorized(token: String?) {
+        if (token == null) { syncStore.finish("Google tidak memberi izin akses Drive."); return }
+        viewModelScope.launch {
+            val label = DriveClient(tokenProvider = { token }).accountLabel()
+            syncStore.setConnected(label ?: "Akun Google terhubung")
+            SyncWorker.enqueue(appContext, force = true)
+        }
+    }
+
+    fun onDriveAuthError(message: String) = syncStore.finish(message)
+    fun syncNow() = SyncWorker.enqueue(appContext, force = true)
+    fun disconnectDrive() = syncStore.disconnect()
+    fun setAutoSync(value: Boolean) = syncStore.setAutoSync(value)
+    fun setWifiOnly(value: Boolean) = syncStore.setWifiOnly(value)
 
     private val advancedOpen = MutableStateFlow(false)
     private val keysTick = MutableStateFlow(0)
     private val rosterDialogOpen = MutableStateFlow(false)
 
-    val uiState: StateFlow<SettingsUiState> = combine(store.settings, advancedOpen, keysTick, rosterDialogOpen) { settings, open, _, rosterOpen ->
+    val uiState: StateFlow<SettingsUiState> = combine(
+        store.settings, advancedOpen, keysTick, rosterDialogOpen, templateRepository.observeChoices(store),
+    ) { settings, open, _, rosterOpen, choices ->
         SettingsUiState(
             settings = settings,
             advancedOpen = open,
@@ -46,8 +84,12 @@ class SettingsViewModel(
                 geminiKey = securePrefs.geminiApiKey.orEmpty(),
                 claudeKey = securePrefs.claudeApiKey.orEmpty(),
                 whisperKey = securePrefs.whisperCloudApiKey.orEmpty(),
+                geminiEmbedded = securePrefs.hasEmbeddedGemini,
+                claudeEmbedded = securePrefs.hasEmbeddedClaude,
+                whisperEmbedded = securePrefs.hasEmbeddedWhisperCloud,
             ),
             rosterDialogOpen = rosterOpen,
+            defaultTemplateName = choices.default.name,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
 

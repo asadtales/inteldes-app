@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.inteldes.app.BuildConfig
 
 /**
  * Holds the village's own BYO API keys, encrypted at rest on-device — matches the
@@ -40,6 +41,16 @@ class SecurePrefs(context: Context) {
     var whisperCloudApiKey: String?
         get() = prefs.getString(KEY_WHISPER_CLOUD, null)?.trim()
         set(value) = prefs.edit().putString(KEY_WHISPER_CLOUD, value?.trim()).apply()
+
+    // Keys packaged into this build (from .env) are used first, so the app works without typing anything.
+    // A key typed in Settings is only the fallback for keys this build was NOT packaged with.
+    val hasEmbeddedGemini: Boolean get() = BuildConfig.EMBEDDED_GEMINI_KEY.isNotBlank()
+    val hasEmbeddedClaude: Boolean get() = BuildConfig.EMBEDDED_CLAUDE_KEY.isNotBlank()
+    val hasEmbeddedWhisperCloud: Boolean get() = BuildConfig.EMBEDDED_DEEPGRAM_KEY.isNotBlank()
+
+    val effectiveGeminiKey: String? get() = BuildConfig.EMBEDDED_GEMINI_KEY.trim().takeIf { it.isNotBlank() } ?: geminiApiKey?.takeIf { it.isNotBlank() }
+    val effectiveClaudeKey: String? get() = BuildConfig.EMBEDDED_CLAUDE_KEY.trim().takeIf { it.isNotBlank() } ?: claudeApiKey?.takeIf { it.isNotBlank() }
+    val effectiveWhisperCloudKey: String? get() = BuildConfig.EMBEDDED_DEEPGRAM_KEY.trim().takeIf { it.isNotBlank() } ?: whisperCloudApiKey?.takeIf { it.isNotBlank() }
 
     companion object {
         private const val KEY_GEMINI = "gemini_api_key"

@@ -1,5 +1,9 @@
 package com.inteldes.app.ui.screens.settings
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -36,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.common.api.ApiException
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.NotulensiDensity
 import com.inteldes.app.data.model.OutputLanguage
@@ -45,9 +52,38 @@ import com.inteldes.app.ui.components.Pill
 import com.inteldes.app.ui.theme.IdColor
 
 @Composable
-fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack: () -> Unit) {
+fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack: () -> Unit, onOpenTemplates: () -> Unit) {
     val vm: SettingsViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
+    val sync by vm.sync.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    fun authFailure(e: Exception) {
+        val code = (e as? ApiException)?.statusCode
+        vm.onDriveAuthError(
+            if (code == 10 || code == 12500) "Aplikasi belum terdaftar di Google Cloud (OAuth client). Lihat panduan penyiapan Drive."
+            else "Gagal menghubungkan Google: ${e.message ?: e.javaClass.simpleName}",
+        )
+    }
+
+    val consentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        try {
+            vm.onDriveAuthorized(Identity.getAuthorizationClient(context).getAuthorizationResultFromIntent(result.data).accessToken)
+        } catch (e: ApiException) {
+            authFailure(e)
+        }
+    }
+    val connectDrive = {
+        Identity.getAuthorizationClient(context).authorize(vm.authRequest())
+            .addOnSuccessListener { r ->
+                val pending = r.pendingIntent
+                if (r.hasResolution() && pending != null) consentLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+                else vm.onDriveAuthorized(r.accessToken)
+            }
+            .addOnFailureListener { authFailure(it) }
+        Unit
+    }
 
     LazyColumn(modifier = Modifier.fillMaxSize().background(IdColor.Bg)) {
         item {
@@ -100,20 +136,45 @@ fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack
 
                 if (state.advancedOpen) {
                     Column(modifier = Modifier.background(IdColor.Neutral100).padding(14.dp)) {
-                        ApiKeyField("API key Gemini", state.keys.geminiKey, onSave = vm::saveGeminiKey)
+                        KeySlot("API key Gemini", state.keys.geminiEmbedded, state.keys.geminiKey, vm::saveGeminiKey)
                         Spacer(Modifier.height(14.dp))
-                        ApiKeyField("API key Claude", state.keys.claudeKey, onSave = vm::saveClaudeKey)
+                        KeySlot("API key Claude", state.keys.claudeEmbedded, state.keys.claudeKey, vm::saveClaudeKey)
                         Spacer(Modifier.height(14.dp))
-                        ApiKeyField("API key transkripsi awan (Deepgram)", state.keys.whisperKey, onSave = vm::saveWhisperKey)
+                        KeySlot("API key transkripsi awan (Deepgram)", state.keys.whisperEmbedded, state.keys.whisperKey, vm::saveWhisperKey)
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            "Disimpan terenkripsi di perangkat. Biaya ditagih langsung ke akun milik desa.",
+                            "Kunci yang tertanam di aplikasi dipakai otomatis. Kunci yang diketik di sini disimpan terenkripsi di perangkat dan hanya dipakai bila aplikasi tidak membawa kunci itu.",
                             color = IdColor.Neutral700,
                             fontSize = 11.5.sp,
                             lineHeight = 16.sp,
                         )
                     }
                 }
+
+                Spacer(Modifier.height(20.dp))
+                HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
+                Spacer(Modifier.height(16.dp))
+
+                KickerLabel("Template dokumen", modifier = Modifier.padding(bottom = 10.dp))
+                SettingRow(
+                    "Template bawaan",
+                    "Bentuk dokumen hasil AI: notulensi, berita acara, atau template buatan sendiri",
+                    state.defaultTemplateName + "  ›",
+                ) { onOpenTemplates() }
+
+                Spacer(Modifier.height(20.dp))
+                HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
+                Spacer(Modifier.height(16.dp))
+
+                KickerLabel("Sinkronisasi Google Drive", modifier = Modifier.padding(bottom = 10.dp))
+                DriveSection(
+                    sync = sync,
+                    onConnect = connectDrive,
+                    onSyncNow = vm::syncNow,
+                    onDisconnect = vm::disconnectDrive,
+                    onToggleAuto = { vm.setAutoSync(!sync.autoSync) },
+                    onToggleWifi = { vm.setWifiOnly(!sync.wifiOnly) },
+                )
 
                 Spacer(Modifier.height(20.dp))
                 HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
@@ -373,5 +434,86 @@ private fun ApiKeyField(label: String, currentValue: String, onSave: (String) ->
                 modifier = Modifier.clickable { onSave(value) }.padding(start = 4.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun DriveSection(
+    sync: com.inteldes.app.data.sync.SyncSettings,
+    onConnect: () -> Unit,
+    onSyncNow: () -> Unit,
+    onDisconnect: () -> Unit,
+    onToggleAuto: () -> Unit,
+    onToggleWifi: () -> Unit,
+) {
+    Column {
+        if (!sync.connected) {
+            Text(
+                "Cadangkan rekaman, transkrip, notulensi, dan foto ke Google Drive milikmu sendiri, dan buka di perangkat lain dengan akun yang sama. " +
+                    "Setiap pengguna / perangkat menghubungkan akun Google-nya masing-masing. IntelDes hanya bisa melihat berkas yang dibuatnya sendiri (folder INTELDES).",
+                color = IdColor.Neutral700, fontSize = 12.sp, lineHeight = 17.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+            DriveButton("HUBUNGKAN GOOGLE DRIVE", filled = true, onClick = onConnect)
+        } else {
+            Text("Terhubung", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
+            Text(sync.account ?: "Akun Google", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                when {
+                    sync.running -> sync.progress ?: "Menyinkronkan…"
+                    sync.lastSyncAt != null -> "Terakhir sinkron: " + java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale("id", "ID")).format(java.util.Date(sync.lastSyncAt))
+                    else -> "Belum pernah sinkron"
+                },
+                color = IdColor.Neutral700, fontSize = 12.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.weight(1f)) { DriveButton(if (sync.running) "MENYINKRONKAN…" else "SINKRONKAN SEKARANG", filled = true, enabled = !sync.running, onClick = onSyncNow) }
+                Box(modifier = Modifier.weight(0.6f)) { DriveButton("PUTUSKAN", filled = false, onClick = onDisconnect) }
+            }
+            SettingRow("Sinkron otomatis", "Setelah rekaman selesai diproses, saat aplikasi dibuka, dan setelah menutup rekaman.", if (sync.autoSync) "Aktif" else "Nonaktif", onToggleAuto)
+            SettingRow("Hanya lewat Wi-Fi", "Cegah unggah audio besar memakai kuota seluler.", if (sync.wifiOnly) "Aktif" else "Nonaktif", onToggleWifi)
+            Text(
+                "Menghapus rekaman di satu perangkat ikut menghapusnya dari Drive dan perangkat lain. Perubahan kategori yang dihapus tidak disinkronkan.",
+                color = IdColor.Neutral600, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        sync.lastError?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, color = IdColor.Accent, fontSize = 12.sp, lineHeight = 17.sp)
+        }
+    }
+}
+
+@Composable
+private fun DriveButton(label: String, filled: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (!enabled) IdColor.Neutral300 else if (filled) IdColor.Accent else IdColor.Neutral100)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 13.dp),
+    ) {
+        Text(
+            label,
+            color = if (filled && enabled) IdColor.White else IdColor.Text,
+            fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.6.sp,
+        )
+    }
+}
+
+/** A key that ships inside the app needs no input; otherwise the usual entry field is shown. */
+@Composable
+private fun KeySlot(label: String, embedded: Boolean, current: String, onSave: (String) -> Unit) {
+    if (embedded) {
+        Column {
+            Text(label, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+            Spacer(Modifier.height(3.dp))
+            Text("Sudah tertanam di aplikasi — tidak perlu diisi.", color = IdColor.Neutral700, fontSize = 12.sp)
+        }
+    } else {
+        ApiKeyField(label, current, onSave = onSave)
     }
 }
