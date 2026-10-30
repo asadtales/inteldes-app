@@ -25,6 +25,8 @@ class IntelDesApp : Application() {
     val settingsStore: AppSettingsStore by lazy { AppSettingsStore(this) }
     val audioRecorder: AudioRecorderManager by lazy { AudioRecorderManager(this) }
     val syncStore: SyncStore by lazy { SyncStore(this) }
+    val sessionStore: com.inteldes.app.data.server.SessionStore by lazy { com.inteldes.app.data.server.SessionStore(this) }
+    val accountService: com.inteldes.app.data.server.AccountService by lazy { com.inteldes.app.data.server.AccountService(sessionStore) }
     val driveAuth: DriveAuth by lazy { DriveAuth(this) }
 
     override fun onCreate() {

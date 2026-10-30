@@ -52,10 +52,17 @@ import com.inteldes.app.ui.components.Pill
 import com.inteldes.app.ui.theme.IdColor
 
 @Composable
-fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack: () -> Unit, onOpenTemplates: () -> Unit) {
+fun SettingsScreen(
+    factory: androidx.lifecycle.ViewModelProvider.Factory,
+    onBack: () -> Unit,
+    onOpenTemplates: () -> Unit,
+    onLogin: () -> Unit,
+    onApproveWebLogin: () -> Unit,
+) {
     val vm: SettingsViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
     val sync by vm.sync.collectAsStateWithLifecycle()
+    val serverSession by vm.serverSession.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     fun authFailure(e: Exception) {
@@ -166,6 +173,13 @@ fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack
                 HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
                 Spacer(Modifier.height(16.dp))
 
+                KickerLabel("Akun & web", modifier = Modifier.padding(bottom = 10.dp))
+                AccountSection(serverSession, onLogin = onLogin, onApprove = onApproveWebLogin, onLogout = vm::logoutServer)
+
+                Spacer(Modifier.height(20.dp))
+                HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
+                Spacer(Modifier.height(16.dp))
+
                 KickerLabel("Sinkronisasi Google Drive", modifier = Modifier.padding(bottom = 10.dp))
                 DriveSection(
                     sync = sync,
@@ -234,7 +248,6 @@ fun SettingsScreen(factory: androidx.lifecycle.ViewModelProvider.Factory, onBack
                     if (state.settings.speakerRoster.isEmpty()) "Atur daftar" else "${state.settings.speakerRoster.size} nama",
                 ) { vm.openRosterDialog() }
                 SettingRow("Ekspor otomatis", "Kirim notulensi ke grup WhatsApp desa", "Nonaktif", onClick = null)
-                SettingRow("Sinkron Google Drive", "Folder Arsip Rapat Desa", "Belum diatur", onClick = null)
                 SettingRow(
                     "Bahasa keluaran",
                     "Bahasa notulensi dan jawaban Tanya AI",
@@ -515,5 +528,44 @@ private fun KeySlot(label: String, embedded: Boolean, current: String, onSave: (
         }
     } else {
         ApiKeyField(label, current, onSave = onSave)
+    }
+}
+
+@Composable
+private fun AccountSection(
+    session: com.inteldes.app.data.server.Session?,
+    onLogin: () -> Unit,
+    onApprove: () -> Unit,
+    onLogout: () -> Unit,
+) {
+    var confirmLogout by remember { mutableStateOf(false) }
+    Column {
+        if (session == null) {
+            Text(
+                "Masuk ke server IntelDes untuk memakai versi web dan sinkron antar perangkat. " +
+                    "Tanpa masuk, aplikasi tetap berfungsi penuh di HP ini (mode lokal).",
+                color = IdColor.Neutral700, fontSize = 12.sp, lineHeight = 17.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+            DriveButton("MASUK KE SERVER", filled = true, onClick = onLogin)
+        } else {
+            Text("Masuk sebagai", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
+            Text("${session.name} · ${session.roleLabel}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(session.orgName, color = IdColor.Neutral700, fontSize = 12.sp)
+            Text(session.email, color = IdColor.Neutral600, fontSize = 11.5.sp)
+            Spacer(Modifier.height(10.dp))
+            DriveButton("MASUK WEB DENGAN QR", filled = true, onClick = onApprove)
+            Spacer(Modifier.height(8.dp))
+            DriveButton("KELUAR DARI SERVER", filled = false, onClick = { confirmLogout = true })
+        }
+    }
+    if (confirmLogout) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmLogout = false },
+            title = { Text("Keluar dari server?", fontWeight = FontWeight.Bold) },
+            text = { Text("HP ini dicabut dari server dan token dihapus. Rekaman di HP tidak dihapus.", fontSize = 13.sp, color = IdColor.Neutral700) },
+            confirmButton = { Text("KELUAR", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { confirmLogout = false; onLogout() }.padding(10.dp)) },
+            dismissButton = { Text("Batal", color = IdColor.Neutral700, modifier = Modifier.clickable { confirmLogout = false }.padding(10.dp)) },
+        )
     }
 }

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older. Session tokens must never be restored onto another phone. -->
 <full-backup-content>
     <exclude domain="sharedpref" path="secure_prefs.xml" />
+    <exclude domain="sharedpref" path="session_prefs.xml" />
+    <exclude domain="sharedpref" path="inteldes_sync.xml" />
 </full-backup-content>

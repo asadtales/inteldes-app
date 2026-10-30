@@ -1,0 +1,52 @@
+{
+  "_comment": "Salinan BuiltInTemplates.kt (Android). ID dan urutan bagian harus sama persis agar sinkron. Tipe bagian: PARAGRAPH, BULLETS, TOPICS, DECISIONS, QUESTIONS, ACTIONS.",
+  "templates": [
+    {
+      "id": "builtin_standard",
+      "name": "Notulensi Standar",
+      "description": "Ringkasan, poin bahasan, keputusan, poin pertanyaan, dan action item.",
+      "builtIn": true,
+      "sections": [
+        { "title": "Ringkasan", "type": "PARAGRAPH", "instruction": "Ringkasan rapat 2-4 kalimat dalam bahasa Indonesia formal." },
+        { "title": "Poin bahasan", "type": "TOPICS", "instruction": "Topik yang dibahas, urut waktu. Tiap topik: detik mulai dibahas, judul singkat 2-6 kata, dan ringkasan 1-2 kalimat." },
+        { "title": "Keputusan", "type": "DECISIONS", "instruction": "Keputusan yang disepakati forum, satu kalimat lengkap per butir." },
+        { "title": "Poin pertanyaan", "type": "QUESTIONS", "instruction": "Pertanyaan yang muncul namun belum atau baru sebagian terjawab, dengan status dan catatan konteks (siapa yang bertanya, kenapa belum tuntas)." },
+        { "title": "Action item", "type": "ACTIONS", "instruction": "Tugas konkret beserta penanggung jawab (PIC) dan tenggat sebagaimana disebut dalam transkrip." }
+      ]
+    },
+    {
+      "id": "builtin_berita_acara",
+      "name": "Berita Acara Rapat",
+      "description": "Format resmi: pembukaan, peserta, uraian pembahasan, keputusan, tindak lanjut, penutup.",
+      "builtIn": true,
+      "sections": [
+        { "title": "Pembukaan", "type": "PARAGRAPH", "instruction": "Paragraf pembuka resmi bergaya berita acara: nama atau jenis rapat, hari, tanggal, tempat, dan waktu bila disebut dalam transkrip (jika tidak disebut tulis \"tidak disebutkan\"), pimpinan rapat, serta maksud dan tujuan rapat. Gunakan bahasa baku." },
+        { "title": "Peserta", "type": "BULLETS", "instruction": "Daftar peserta atau pembicara yang teridentifikasi beserta jabatannya sebagaimana disebut dalam transkrip." },
+        { "title": "Uraian pembahasan", "type": "TOPICS", "instruction": "Uraian tiap pokok pembahasan secara formal dan netral, urut waktu." },
+        { "title": "Keputusan dan kesepakatan", "type": "DECISIONS", "instruction": "Seluruh keputusan dan kesepakatan rapat, satu kalimat resmi per butir." },
+        { "title": "Tindak lanjut", "type": "ACTIONS", "instruction": "Tugas tindak lanjut beserta penanggung jawab dan tenggat." },
+        { "title": "Penutup", "type": "PARAGRAPH", "instruction": "Paragraf penutup resmi: waktu rapat ditutup bila disebut, dan kalimat penutup bahwa berita acara ini dibuat dengan sebenarnya." }
+      ]
+    },
+    {
+      "id": "builtin_ringkas",
+      "name": "Ringkasan Singkat",
+      "description": "Satu paragraf ringkasan dan beberapa poin penting — cepat dibaca.",
+      "builtIn": true,
+      "sections": [
+        { "title": "Ringkasan", "type": "PARAGRAPH", "instruction": "Satu paragraf ringkasan rapat, maksimal 4 kalimat." },
+        { "title": "Poin penting", "type": "BULLETS", "instruction": "3 sampai 7 poin terpenting dari rapat, masing-masing satu kalimat." }
+      ]
+    },
+    {
+      "id": "builtin_tindak_lanjut",
+      "name": "Fokus Tindak Lanjut",
+      "description": "Hanya keputusan dan action item — untuk rapat koordinasi cepat.",
+      "builtIn": true,
+      "sections": [
+        { "title": "Keputusan", "type": "DECISIONS", "instruction": "Keputusan yang disepakati, satu kalimat lengkap per butir." },
+        { "title": "Action item", "type": "ACTIONS", "instruction": "Semua tugas beserta PIC dan tenggat yang disebut dalam transkrip." }
+      ]
+    }
+  ]
+}

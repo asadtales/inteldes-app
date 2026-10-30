@@ -21,7 +21,9 @@ class AppViewModelFactory(private val app: IntelDesApp) : ViewModelProvider.Fact
         modelClass.isAssignableFrom(RecordViewModel::class.java) ->
             RecordViewModel(app, app.audioRecorder, app.repository, app.settingsStore, app.templateRepository) as T
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
-            SettingsViewModel(app, app.settingsStore, app.securePrefs, app.templateRepository, app.syncStore, app.driveAuth) as T
+            SettingsViewModel(app, app.settingsStore, app.securePrefs, app.templateRepository, app.syncStore, app.driveAuth, app.accountService) as T
+        modelClass.isAssignableFrom(com.inteldes.app.ui.screens.account.AccountViewModel::class.java) ->
+            com.inteldes.app.ui.screens.account.AccountViewModel(app.accountService) as T
         modelClass.isAssignableFrom(ContextsViewModel::class.java) ->
             ContextsViewModel(app.contextRepository, app.repository) as T
         modelClass.isAssignableFrom(TemplatesViewModel::class.java) ->

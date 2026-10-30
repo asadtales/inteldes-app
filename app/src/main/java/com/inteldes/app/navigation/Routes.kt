@@ -17,6 +17,16 @@ sealed class Routes(val route: String) {
     data object Settings : Routes("settings")
     data object Templates : Routes("templates")
     data object Contexts : Routes("contexts")
+    data object Login : Routes("login")
+    data object Scan : Routes("scan/{mode}") {
+        fun of(mode: String) = "scan/$mode"
+    }
+    data object Approve : Routes("approve/{code}") {
+        fun of(code: String) = "approve/$code"
+    }
+    data object Claim : Routes("claim/{code}") {
+        fun of(code: String) = "claim/$code"
+    }
     data object ContextDetail : Routes("context/{contextId}") {
         fun of(id: String) = "context/$id"
     }

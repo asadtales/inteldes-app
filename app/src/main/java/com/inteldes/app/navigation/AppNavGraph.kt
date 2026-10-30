@@ -23,12 +23,23 @@ import com.inteldes.app.ui.screens.record.RecordScreen
 import com.inteldes.app.ui.screens.settings.SettingsScreen
 import com.inteldes.app.data.work.ProcessRecordingWorker
 import com.inteldes.app.ui.screens.templates.TemplatesScreen
+import com.inteldes.app.ui.screens.account.ApproveScreen
+import com.inteldes.app.ui.screens.account.ClaimScreen
+import com.inteldes.app.ui.screens.account.LoginScreen
+import com.inteldes.app.ui.screens.account.ScanMode
+import com.inteldes.app.ui.screens.account.ScanPairScreen
 import com.inteldes.app.ui.screens.contexts.ContextDetailScreen
 import com.inteldes.app.ui.screens.contexts.ContextsScreen
 import com.inteldes.app.ui.contextDetailViewModelFactory
 
 @Composable
-fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNavController(), recordShortcutToken: Int = 0) {
+fun AppNavGraph(
+    app: IntelDesApp,
+    navController: NavHostController = rememberNavController(),
+    recordShortcutToken: Int = 0,
+    pairLink: com.inteldes.app.data.server.PairingLink? = null,
+    onPairLinkHandled: () -> Unit = {},
+) {
     val appFactory = remember { AppViewModelFactory(app) }
 
     // Launched from the "Rekam" home-screen shortcut — jump straight past the list.
@@ -38,7 +49,80 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
         if (recordShortcutToken > 0) navController.navigate(Routes.Record.route) { launchSingleTop = true }
     }
 
-    NavHost(navController = navController, startDestination = Routes.Home.route) {
+    val account = app.accountService
+    val sessionNow by account.session.collectAsStateWithLifecycle()
+    val endedByServer by account.endedByServer.collectAsStateWithLifecycle()
+    // First launch with no login and no "Lewati" yet: the login screen comes first (and is skippable).
+    val startDestination = remember { if (!account.loggedIn && !account.loginSkipped) Routes.Login.route else Routes.Home.route }
+
+    // The server revoked this device (or the refresh was rejected): back to the login screen, with an explanation.
+    LaunchedEffect(endedByServer, sessionNow) {
+        if (endedByServer && sessionNow == null) {
+            navController.navigate(Routes.Login.route) { launchSingleTop = true; popUpTo(Routes.Home.route) }
+        }
+    }
+
+    // A pairing QR opened from outside the app (camera app / link): same checks as an in-app scan, done by MainActivity.
+    LaunchedEffect(pairLink) {
+        val link = pairLink ?: return@LaunchedEffect
+        when (link.kind) {
+            com.inteldes.app.data.server.PairingLink.Kind.WEB_LOGIN ->
+                navController.navigate(if (account.loggedIn) Routes.Approve.of(link.code) else Routes.Login.route) { launchSingleTop = true }
+            com.inteldes.app.data.server.PairingLink.Kind.ADD_PHONE ->
+                navController.navigate(Routes.Claim.of(link.code)) { launchSingleTop = true }
+        }
+        onPairLinkHandled()
+    }
+
+    NavHost(navController = navController, startDestination = startDestination) {
+        composable(Routes.Login.route) {
+            LoginScreen(
+                factory = appFactory,
+                canSkip = !account.loggedIn,
+                onDone = { navController.navigate(Routes.Home.route) { popUpTo(0) } },
+                onScanQr = { navController.navigate(Routes.Scan.of(ScanMode.CLAIM.route)) },
+                onSkip = { navController.navigate(Routes.Home.route) { popUpTo(0) } },
+            )
+        }
+
+        composable(
+            route = Routes.Scan.route,
+            arguments = listOf(navArgument("mode") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val mode = ScanMode.entries.firstOrNull { it.route == backStackEntry.arguments?.getString("mode") } ?: ScanMode.CLAIM
+            ScanPairScreen(
+                mode = mode,
+                factory = appFactory,
+                onBack = { navController.popBackStack() },
+                onLink = { link ->
+                    navController.navigate(if (mode == ScanMode.APPROVE) Routes.Approve.of(link.code) else Routes.Claim.of(link.code)) {
+                        popUpTo(Routes.Scan.route) { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = Routes.Approve.route,
+            arguments = listOf(navArgument("code") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val code = backStackEntry.arguments?.getString("code") ?: return@composable
+            ApproveScreen(code = code, factory = appFactory, onDone = { navController.popBackStack() }, onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = Routes.Claim.route,
+            arguments = listOf(navArgument("code") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val code = backStackEntry.arguments?.getString("code") ?: return@composable
+            ClaimScreen(
+                code = code,
+                factory = appFactory,
+                onDone = { navController.navigate(Routes.Home.route) { popUpTo(0) } },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
         composable(Routes.Home.route) {
             val settings by app.settingsStore.settings.collectAsStateWithLifecycle(initialValue = null)
             val engineLabel = if (settings?.defaultEngine == WhisperEngine.ON_DEVICE) "Whisper on-device" else "Whisper awan"
@@ -128,6 +212,8 @@ fun AppNavGraph(app: IntelDesApp, navController: NavHostController = rememberNav
                 factory = appFactory,
                 onBack = { navController.popBackStack() },
                 onOpenTemplates = { navController.navigate(Routes.Templates.route) },
+                onLogin = { navController.navigate(Routes.Login.route) },
+                onApproveWebLogin = { navController.navigate(Routes.Scan.of(ScanMode.APPROVE.route)) },
             )
         }
 

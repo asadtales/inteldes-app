@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ (fullBackupContent is ignored there). No secrets or session state in cloud backup or device transfer. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="secure_prefs.xml" />
+        <exclude domain="sharedpref" path="session_prefs.xml" />
+        <exclude domain="sharedpref" path="inteldes_sync.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="secure_prefs.xml" />
+        <exclude domain="sharedpref" path="session_prefs.xml" />
+        <exclude domain="sharedpref" path="inteldes_sync.xml" />
+    </device-transfer>
+</data-extraction-rules>

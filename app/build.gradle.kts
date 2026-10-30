@@ -25,6 +25,8 @@ android {
         versionCode = 2
         versionName = "1.1.0"
 
+        // The IntelDes web/server this app can sign in to (login + QR pairing). HTTPS only.
+        buildConfigField("String", "SERVER_URL", "\"https://inteldes.at-in.site\"")
         buildConfigField("String", "EMBEDDED_GEMINI_KEY", buildConfigString("GEMINI_API_KEY"))
         buildConfigField("String", "EMBEDDED_CLAUDE_KEY", buildConfigString("CLAUDE_API_KEY"))
         buildConfigField("String", "EMBEDDED_DEEPGRAM_KEY", buildConfigString("DEEPGRAM_API_KEY"))
@@ -121,6 +123,11 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
+    // QR scanning (runs inside Google Play services: no CAMERA permission needed) and biometric/PIN confirmation
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.fragment:fragment:1.8.2")
+
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
@@ -128,6 +135,7 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

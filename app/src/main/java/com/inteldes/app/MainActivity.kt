@@ -5,7 +5,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,20 +21,29 @@ import com.inteldes.app.ui.theme.IntelDesTheme
 
 private const val RECORD_SHORTCUT_URI = "inteldes://record"
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     // A counter, not a boolean: onNewIntent can deliver the same shortcut intent again
     // while the app is already open (singleTop), and a plain boolean staying "true"
     // wouldn't re-trigger navigation the second time. Incrementing always does.
     private val recordShortcutToken = mutableIntStateOf(0)
 
+    // A QR opened through an App Link (the camera app, a message). Parsed with the SAME checks as an in-app scan.
+    private val pairLink = androidx.compose.runtime.mutableStateOf<com.inteldes.app.data.server.PairingLink?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (isRecordShortcutIntent(intent)) recordShortcutToken.intValue++
+        pairLink.value = pairLinkFrom(intent)
         setContent {
             IntelDesTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = IdColor.Bg) {
                     RequestNotificationPermissionIfNeeded()
-                    AppNavGraph(app = application as IntelDesApp, recordShortcutToken = recordShortcutToken.intValue)
+                    AppNavGraph(
+                        app = application as IntelDesApp,
+                        recordShortcutToken = recordShortcutToken.intValue,
+                        pairLink = pairLink.value,
+                        onPairLinkHandled = { pairLink.value = null },
+                    )
                 }
             }
         }
@@ -44,6 +53,12 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (isRecordShortcutIntent(intent)) recordShortcutToken.intValue++
+        pairLinkFrom(intent)?.let { pairLink.value = it }
+    }
+
+    private fun pairLinkFrom(intent: Intent?): com.inteldes.app.data.server.PairingLink? {
+        val data = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return null
+        return (application as IntelDesApp).accountService.parseQr(data)
     }
 
     private fun isRecordShortcutIntent(intent: Intent?) = intent?.data?.toString() == RECORD_SHORTCUT_URI

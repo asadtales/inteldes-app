@@ -47,7 +47,12 @@ class SettingsViewModel(
     templateRepository: TemplateRepository,
     private val syncStore: SyncStore,
     private val driveAuth: DriveAuth,
+    private val account: com.inteldes.app.data.server.AccountService,
 ) : ViewModel() {
+
+    /** The IntelDes server login of this install (null = local mode). */
+    val serverSession: StateFlow<com.inteldes.app.data.server.Session?> = account.session
+    fun logoutServer() { viewModelScope.launch { account.logout() } }
 
     /** Google Drive link + options of THIS device (every device connects its own account). */
     val sync: StateFlow<SyncSettings> = syncStore.settings
