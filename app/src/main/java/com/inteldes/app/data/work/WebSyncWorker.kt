@@ -67,8 +67,12 @@ class WebSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                 if (report.firstError == null) report.firstError = lib.firstError
                 store.progress = null
                 store.lastRunAt = System.currentTimeMillis()
-                store.lastPushed = report.pushed
-                store.lastPulled = report.pulled
+                // The run right after a big one only finds echoes of what was just sent (all zeros): keep showing the
+                // last run that actually did something, and clear the failure count once a run is clean.
+                if (report.pushed + report.pulled + report.failed > 0) {
+                    store.lastPushed = report.pushed
+                    store.lastPulled = report.pulled
+                }
                 store.lastFailed = report.failed
                 store.lastSummary = if (report.failed > 0) "${report.failed} gagal: ${report.firstError}" else "Selesai."
                 if (report.failed > 0 && runAttemptCount < MAX_ATTEMPTS - 1) Result.retry() else Result.success()
