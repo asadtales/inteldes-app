@@ -35,7 +35,8 @@ class AccountService(
         get() = store.loginSkipped
         set(value) { store.loginSkipped = value }
 
-    private val api = ServerApi(serverUrl, store, onSessionEnded = { store.markEndedByServer() })
+    /** The authenticated API, for the data sync. */
+    val api = ServerApi(serverUrl, store, onSessionEnded = { store.markEndedByServer() })
 
     val deviceName: String get() = listOf(Build.MANUFACTURER, Build.MODEL).filter { !it.isNullOrBlank() }.joinToString(" ").take(100)
 
@@ -56,6 +57,9 @@ class AccountService(
     suspend fun discard(result: LoginResult) {
         runCatching { api.logoutWith(result.accessToken) }
     }
+
+    /** The organisation this session belongs to (asks the server). */
+    suspend fun currentOrg(): ServerOrg = api.me().org
 
     suspend fun inspect(code: String): PairInspect = api.inspect(code)
 

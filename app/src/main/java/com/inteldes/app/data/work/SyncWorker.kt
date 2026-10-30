@@ -93,6 +93,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
          * automatic sync is on. Respects the Wi-Fi-only option.
          */
         fun enqueue(context: Context, force: Boolean = false) {
+            WebSyncWorker.enqueue(context)      // the web sync shares every trigger of the Drive sync (it does its own checks)
             val store = (context.applicationContext as IntelDesApp).syncStore
             val s = store.settings.value
             if (!s.connected || (!force && !s.autoSync)) return

@@ -14,6 +14,9 @@ interface CategoryDao {
     @Query("SELECT * FROM categories ORDER BY orderIndex ASC")
     fun observeAll(): Flow<List<CategoryEntity>>
 
+    @Query("SELECT * FROM categories ORDER BY orderIndex ASC")
+    suspend fun list(): List<CategoryEntity>
+
     @Query("SELECT COUNT(*) FROM categories")
     suspend fun count(): Int
 
@@ -49,6 +52,12 @@ interface RecordingDao {
 
     @Query("UPDATE recordings SET kind = :newKind WHERE kind = :oldKind")
     suspend fun reassignKind(oldKind: String, newKind: String)
+
+    @Query("SELECT id FROM recordings")
+    suspend fun ids(): List<String>
+
+    @Query("UPDATE recordings SET audioFilePath = :path WHERE id = :id")
+    suspend fun setAudioPath(id: String, path: String)
 }
 
 @Dao
@@ -67,6 +76,12 @@ interface RecordingMarkDao {
 
     @Query("DELETE FROM recording_marks WHERE recordingId = :recordingId")
     suspend fun clear(recordingId: String)
+
+    @Query("SELECT * FROM recording_marks WHERE recordingId = :recordingId ORDER BY id")
+    suspend fun list(recordingId: String): List<RecordingMarkEntity>
+
+    @Query("DELETE FROM recording_marks WHERE id = :id")
+    suspend fun deleteById(id: Long)
 }
 
 @Dao
@@ -82,6 +97,9 @@ interface NotulensiHistoryDao {
 interface NoteSectionDao {
     @Query("SELECT * FROM note_sections WHERE recordingId = :recordingId ORDER BY orderIndex")
     fun observe(recordingId: String): Flow<List<NoteSectionEntity>>
+
+    @Query("SELECT * FROM note_sections WHERE recordingId = :recordingId ORDER BY orderIndex")
+    suspend fun list(recordingId: String): List<NoteSectionEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<NoteSectionEntity>)
@@ -119,6 +137,9 @@ interface PhotoDao {
     @Query("SELECT * FROM photos WHERE id = :id")
     suspend fun getOne(id: Long): PhotoEntity?
 
+    @Query("SELECT * FROM photos WHERE recordingId = :recordingId")
+    suspend fun list(recordingId: String): List<PhotoEntity>
+
     @Insert
     suspend fun insert(entity: PhotoEntity): Long
 
@@ -136,6 +157,9 @@ interface PhotoDao {
 interface TranscriptDao {
     @Query("SELECT * FROM transcript_segments WHERE recordingId = :recordingId ORDER BY orderIndex")
     fun observeSegments(recordingId: String): Flow<List<TranscriptSegmentEntity>>
+
+    @Query("SELECT * FROM transcript_segments WHERE recordingId = :recordingId ORDER BY orderIndex")
+    suspend fun list(recordingId: String): List<TranscriptSegmentEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSegments(items: List<TranscriptSegmentEntity>)
@@ -196,6 +220,9 @@ interface ChatDao {
 
     @Query("SELECT COUNT(*) FROM chat_messages WHERE recordingId = :recordingId")
     suspend fun count(recordingId: String): Int
+
+    @Query("SELECT * FROM chat_messages WHERE recordingId = :recordingId ORDER BY orderIndex")
+    suspend fun list(recordingId: String): List<ChatMessageEntity>
 }
 
 @Dao
@@ -211,4 +238,7 @@ interface WebSyncDao {
 
     @Query("DELETE FROM web_sync_state WHERE recordingId = :id")
     suspend fun remove(id: String)
+
+    @Query("DELETE FROM web_sync_state")
+    suspend fun clear()
 }

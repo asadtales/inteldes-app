@@ -18,8 +18,11 @@ import com.inteldes.app.data.repository.TemplateRepository
 /** Simple manual service locator — small enough app that a DI framework is unneeded ceremony. */
 class IntelDesApp : Application() {
     val database: IntelDesDatabase by lazy { IntelDesDatabase.get(this) }
-    val repository: RecordingRepository by lazy { RecordingRepository(database) }
+    val repository: RecordingRepository by lazy {
+        RecordingRepository(database).also { repo -> repo.onDeletedHere = { id -> webSyncStore.addPendingDelete(id) } }
+    }
     val templateRepository: TemplateRepository by lazy { TemplateRepository(database.templateDao()) }
+    val webSyncStore: com.inteldes.app.data.web.WebSyncStore by lazy { com.inteldes.app.data.web.WebSyncStore(this, database) }
     val contextRepository: com.inteldes.app.data.repository.ContextRepository by lazy { com.inteldes.app.data.repository.ContextRepository(database, repository) }
     val securePrefs: SecurePrefs by lazy { SecurePrefs(this) }
     val settingsStore: AppSettingsStore by lazy { AppSettingsStore(this) }

@@ -305,9 +305,15 @@ class RecordingRepository(private val db: IntelDesDatabase) {
         db.recordingMarkDao().delete(RecordingMarkEntity(id = mark.id, recordingId = recordingId, timestampSec = mark.timestampSec, label = mark.label, createdAt = 0))
     }
 
+    /** Set by the app: called with the id of a recording the user deleted on this phone and the web already had. */
+    var onDeletedHere: ((String) -> Unit)? = null
+
     /** Deletes the recording row (cascades to its transcript/notulensi/chat/photo rows), its audio file and photo files. */
     suspend fun deleteRecording(id: String) {
         val entity = db.recordingDao().getOne(id) ?: return
+        // Tell the web sync (once the user turns it on) that THIS phone deleted it, so the server copy goes too.
+        // Only recordings the server already knows about are reported.
+        if (db.webSyncDao().get(id) != null) onDeletedHere?.invoke(id)
         entity.audioFilePath?.let { File(it).delete() }
         // Photo rows cascade with the recording, but the image files don't.
         db.photoDao().observe(id).first().forEach { File(it.filePath).delete() }

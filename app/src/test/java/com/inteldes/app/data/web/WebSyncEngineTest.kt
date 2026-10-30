@@ -167,7 +167,7 @@ private class FakeLocal(private val dir: File) : WebLocal {
         return LocalAggregate(id, r.input, r.transcript, r.sections, r.marks, r.chat, r.audio)
     }
     override suspend fun hasAudio(id: String) = recs[id]?.audio?.exists() == true
-    override suspend fun hasPhoto(serverPhotoId: String) = false
+    override suspend fun hasPhoto(recordingId: String, photoId: String) = false
     override suspend fun audioTarget(id: String, sha256: String, mimeType: String) = File(dir, "aud_$id.m4a")
     override suspend fun photoTarget(sha256: String) = File(dir, "photo_$sha256.jpg")
     override suspend fun attachAudio(id: String, file: File) { recs[id]?.audio = file }

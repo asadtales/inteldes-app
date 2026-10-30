@@ -41,11 +41,16 @@ class ServerApi(
     base: OkHttpClient = defaultClient(),
     private val gson: Gson = Gson(),
 ) {
+    val baseUrlString: String get() = baseUrl
+
     private val plain: OkHttpClient = base
     private val authed: OkHttpClient = base.newBuilder()
         .addInterceptor(BearerInterceptor(tokens, baseUrl.toHttpUrl().host))
         .authenticator(RefreshAuthenticator(tokens, ::refreshBlocking, onSessionEnded))
         .build()
+
+    /** The session-aware client (Bearer + single-flight refresh) for the data sync. */
+    val sessionClient: OkHttpClient get() = authed
 
     // ───────────────────────── no session needed ─────────────────────────
 
@@ -120,7 +125,7 @@ class ServerApi(
             text
         }
 
-    private fun toException(status: Int, text: String): ServerException {
+    fun toException(status: Int, text: String): ServerException {
         val error = runCatching { JsonParser.parseString(text).asJsonObject.getAsJsonObject("error") }.getOrNull()
         val code = error?.get("code")?.takeIf { !it.isJsonNull }?.asString
         val message = error?.get("message")?.takeIf { !it.isJsonNull }?.asString

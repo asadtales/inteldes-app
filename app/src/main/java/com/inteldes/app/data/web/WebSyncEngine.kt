@@ -51,7 +51,7 @@ interface WebLocal {
     /** Null when missing or still being processed (WORKING: the pipeline owns it, don't touch it). */
     suspend fun aggregate(id: String): LocalAggregate?
     suspend fun hasAudio(id: String): Boolean
-    suspend fun hasPhoto(serverPhotoId: String): Boolean
+    suspend fun hasPhoto(recordingId: String, photoId: String): Boolean
     suspend fun audioTarget(id: String, sha256: String, mimeType: String): File
     suspend fun photoTarget(sha256: String): File
     suspend fun attachAudio(id: String, file: File)
@@ -197,6 +197,7 @@ class WebSyncEngine(
     }
 
     private suspend fun pullRecording(id: String, report: WebSyncReport) {
+        if (id in store.pendingDeletes()) return                    // deleted on this phone, the server doesn't know yet: don't bring it back
         val server = remote.getAggregate(id)
         if (server == null) { store.removeRetry(id); return }
         if (server.recording.deletedAt != null) { report.ignoredServerDeletes++; store.removeRetry(id); return }
@@ -271,7 +272,7 @@ class WebSyncEngine(
         }
         val photoFiles = mutableMapOf<String, File>()
         for (p in server.photos.filter { it.deletedAt == null }) {
-            if (local.hasPhoto(p.id)) continue
+            if (local.hasPhoto(id, p.id)) continue
             val dest = local.photoTarget(p.blobSha256)
             try { remote.downloadBlob(p.blobSha256, dest); photoFiles[p.id] = dest } catch (e: CancellationException) { throw e } catch (e: AuthException) { throw e } catch (e: Exception) { /* photo later; not worth failing the recording */ }
         }
