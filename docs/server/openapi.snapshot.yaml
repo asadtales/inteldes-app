@@ -34,6 +34,8 @@ tags:
   - { name: Auth }
   - { name: Pairing }
   - { name: Perangkat }
+  - { name: Pengguna }
+  - { name: Konteks }
   - { name: Kategori }
   - { name: Rapat }
   - { name: Sinkron }
@@ -248,6 +250,141 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/users:
+    get:
+      tags: [Pengguna]
+      summary: Daftar pengguna organisasi (admin)
+      operationId: listUsers
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200": { description: "Pengguna urut nama.", content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/UserRow" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Pengguna]
+      summary: Tambah pengguna dan buat tautan undangan (admin)
+      description: |
+        Akun dibuat tanpa sandi yang bisa dipakai. Respons memuat tautan undangan **satu kali tampil** (berlaku 72 jam,
+        sekali pakai); pengguna menetapkan sandinya sendiri lewat tautan itu. Sandi tidak pernah lewat admin.
+      operationId: createUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/NewUser" } } }
+      responses:
+        "201": { description: "Dibuat.", content: { application/json: { schema: { type: object, required: [user, invite], properties: { user: { $ref: "#/components/schemas/UserBrief" }, invite: { $ref: "#/components/schemas/Invite" } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/users/{id}:
+    patch:
+      tags: [Pengguna]
+      summary: Ubah nama, peran, atau status aktif (admin)
+      description: |
+        Menonaktifkan mencabut semua perangkat pengguna seketika. `409 self_change` bila admin mengubah peran atau
+        menonaktifkan dirinya sendiri; `409 last_admin` bila itu meninggalkan organisasi tanpa admin aktif.
+      operationId: updateUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/UserPatch" } } }
+      responses:
+        "200": { description: "Diubah.", content: { application/json: { schema: { $ref: "#/components/schemas/UserBrief" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/users/{id}/invite:
+    post:
+      tags: [Pengguna]
+      summary: Buat tautan baru untuk menetapkan/mengatur ulang sandi (admin)
+      description: Membatalkan tautan lama yang belum dipakai. Memakai tautan ini mencabut sesi lama pengguna.
+      operationId: inviteUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200": { description: "Tautan dibuat.", content: { application/json: { schema: { type: object, required: [invite], properties: { invite: { $ref: "#/components/schemas/Invite" } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/access-requests:
+    get:
+      tags: [Pengguna]
+      summary: Permintaan akses yang menunggu keputusan (admin)
+      description: Berasal dari login Portal atau Google yang belum punya akun. Tidak ada akun yang dibuat sebelum admin menyetujui.
+      operationId: listAccessRequests
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200": { description: "Permintaan menunggu.", content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/AccessRequest" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/access-requests/{id}/approve:
+    post:
+      tags: [Pengguna]
+      summary: Setujui permintaan akses dan tentukan peran (admin)
+      description: |
+        Membuat akun, memberi peran, dan menautkan akun Portal/Google itu. Untuk Portal, peran harus salah satu peran
+        yang dikirim portal (`409 role_not_in_portal`). `409 email_exists` bila email sudah punya akun.
+      operationId: approveAccessRequest
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [role], properties: { role: { $ref: "#/components/schemas/Role" } } } } }
+      responses:
+        "200": { description: "Disetujui.", content: { application/json: { schema: { type: object, required: [user], properties: { user: { $ref: "#/components/schemas/UserBrief" } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/access-requests/{id}/reject:
+    post:
+      tags: [Pengguna]
+      summary: Tolak permintaan akses (admin)
+      operationId: rejectAccessRequest
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "204": { description: "Ditolak." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/auth/invite/inspect:
+    post:
+      tags: [Pengguna]
+      summary: Periksa tautan undangan sebelum menetapkan sandi
+      description: Publik; token dari fragmen tautan (`#t=`). `410 invite_invalid` untuk token salah, kedaluwarsa, atau sudah dipakai.
+      operationId: inviteInspect
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [token], properties: { token: { type: string } } } } }
+      responses:
+        "200": { description: "Tautan sah.", content: { application/json: { schema: { type: object, required: [email, name, purpose], properties: { email: { type: string }, name: { type: string }, purpose: { enum: [invite, reset] } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "410": { description: "Tautan tidak berlaku.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /v1/auth/invite/accept:
+    post:
+      tags: [Pengguna]
+      summary: Tetapkan sandi lewat tautan undangan
+      description: Publik; sandi minimal 12 karakter (`400 weak_password`). Tautan hangus setelah dipakai. Tidak langsung masuk; pengguna lanjut ke halaman masuk.
+      operationId: inviteAccept
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [token, password], properties: { token: { type: string }, password: { type: string, minLength: 12 } } } } }
+      responses:
+        "204": { description: "Sandi ditetapkan." }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "410": { description: "Tautan tidak berlaku.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   /v1/categories:
     get:
       tags: [Kategori]
@@ -403,6 +540,58 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /v1/recordings/{id}/photos:
+    put:
+      tags: [Rapat]
+      summary: Gabungkan foto dokumentasi per UUID
+      description: |
+        Berkas foto diunggah dulu lewat tus; `409 blob_missing` (dengan `details.missing`) bila `blobSha256` belum ada
+        di organisasi ini. Penghapusan mengalahkan edit (caption dan menit hanya berubah selama belum dihapus).
+      operationId: putPhotos
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [photos], properties: { photos: { type: array, maxItems: 500, items: { $ref: "#/components/schemas/PhotoInput" } } } } } }
+      responses:
+        "204": { description: "Tergabung." }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/recordings/{id}/revisions:
+    get:
+      tags: [Rapat]
+      summary: Riwayat versi notulensi
+      description: Notulensi lama yang tergantikan (susun ulang, sunting, atau sisi yang kalah saat bentrok), terbaru dahulu, maksimal 50.
+      operationId: listRevisions
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200": { description: "Riwayat.", content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/Revision" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/import/chat:
+    post:
+      tags: [Rapat]
+      summary: Impor teks percakapan menjadi rapat tanpa audio
+      description: |
+        Port `ChatImport.kt`: ekspor WhatsApp (Android/iPhone) atau baris `Nama: ucapan`. Cap waktu WhatsApp dibaca
+        sebagai WIB. Hasilnya rapat `RAW` berisi transkrip; susun notulensinya lewat `POST /recordings/{id}/regenerate`.
+        `422 chat_unreadable` bila tak ada percakapan; teks maksimal 300.000 karakter (zip dibuka di klien).
+      operationId: importChat
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ImportChatRequest" } } }
+      responses:
+        "201": { description: "Rapat dibuat.", content: { application/json: { schema: { type: object, required: [recording, messages, participants], properties: { recording: { $ref: "#/components/schemas/Recording" }, messages: { type: integer }, participants: { type: integer } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { description: "Percakapan tidak terbaca.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
   /v1/recordings/{id}/chat:
     post:
       tags: [Rapat]
@@ -573,6 +762,87 @@ paths:
       responses:
         "200": { description: Template., content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/Template" } } } } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/templates/{id}:
+    put:
+      tags: [Pengaturan AI]
+      summary: Buat atau ubah template buatan sendiri
+      description: |
+        ID wajib `custom_<uuid>`. Template bawaan tidak bisa diubah (404). Tanpa `If-Match` hanya untuk membuat;
+        versi basi → 409 berisi salinan server. Bagian: 1–30, tipe `PARAGRAPH|BULLETS|TOPICS|DECISIONS|QUESTIONS|ACTIONS`.
+      operationId: putTemplate
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, pattern: "^custom_[0-9a-f-]{36}$" } }, { $ref: "#/components/parameters/IfMatch" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TemplateInput" } } }
+      responses:
+        "200": { description: Tersimpan., content: { application/json: { schema: { $ref: "#/components/schemas/Template" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Pengaturan AI]
+      summary: Hapus template buatan sendiri
+      description: Soft delete. Rapat yang memakainya tetap utuh.
+      operationId: deleteTemplate
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, pattern: "^custom_[0-9a-f-]{36}$" } }]
+      responses:
+        "204": { description: Dihapus. }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/contexts:
+    get:
+      tags: [Konteks]
+      summary: Daftar konteks pengetahuan
+      operationId: listContexts
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200": { description: Konteks., content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/KnowledgeContext" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/contexts/{id}:
+    get:
+      tags: [Konteks]
+      summary: Satu konteks beserta sumbernya
+      operationId: getContext
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200": { description: Konteks., content: { application/json: { schema: { $ref: "#/components/schemas/KnowledgeContext" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Konteks]
+      summary: Buat atau ubah konteks (sumber diganti utuh)
+      description: Teks maksimal 40.000 karakter. Sumber hanya boleh menunjuk rapat organisasi ini (`400 bad_source`). Tanpa `If-Match` hanya untuk membuat.
+      operationId: putContext
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }, { $ref: "#/components/parameters/IfMatch" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/KnowledgeContextInput" } } }
+      responses:
+        "200": { description: Tersimpan., content: { application/json: { schema: { $ref: "#/components/schemas/KnowledgeContext" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Konteks]
+      summary: Hapus konteks
+      operationId: deleteContext
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "204": { description: Dihapus. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/sync/changes:
     get:
@@ -728,6 +998,22 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
+  /sso/request-access:
+    post:
+      tags: [SSO Portal]
+      summary: Minta akses bagi akun portal yang belum punya akun IntelDes
+      description: |
+        Butuh cookie `idlnk` dari callback. Hanya untuk organisasi yang sesuai dan akun portal yang punya peran
+        `admin`/`operator`/`pembaca`. Tidak membuat akun; admin memutuskan. Idempoten selama masih menunggu.
+      operationId: ssoRequestAccess
+      security: []
+      responses:
+        "202": { description: "Permintaan tercatat.", content: { application/json: { schema: { type: object, required: [status], properties: { status: { enum: [pending] } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
   /sso/backchannel-logout:
     post:
       tags: [SSO Portal]
@@ -831,6 +1117,19 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /auth/google/request-access:
+    post:
+      tags: [Google]
+      summary: Minta akses bagi akun Google yang belum punya akun IntelDes
+      description: Butuh cookie `idglnk` dari callback. Tidak membuat akun; admin memutuskan. Idempoten selama masih menunggu.
+      operationId: googleRequestAccess
+      security: []
+      responses:
+        "202": { description: "Permintaan tercatat.", content: { application/json: { schema: { type: object, required: [status], properties: { status: { enum: [pending] } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
 components:
@@ -1023,6 +1322,61 @@ components:
         revokedAt: { type: [integer, "null"] }
         current: { type: boolean }
 
+    UserBrief:
+      type: object
+      required: [id, email, name, role]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        disabled: { type: boolean }
+    UserRow:
+      type: object
+      required: [id, email, name, role, disabled, createdAt, lastSeenAt, linkedSso, linkedGoogle, pendingInvite, current]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        disabled: { type: boolean }
+        createdAt: { type: integer }
+        lastSeenAt: { type: [integer, "null"] }
+        linkedSso: { type: boolean }
+        linkedGoogle: { type: boolean }
+        pendingInvite: { type: boolean, description: "Ada tautan undangan/atur ulang sandi yang belum dipakai dan belum kedaluwarsa." }
+        current: { type: boolean }
+    NewUser:
+      type: object
+      required: [email, name, role]
+      properties:
+        email: { type: string, format: email }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        role: { $ref: "#/components/schemas/Role" }
+    UserPatch:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        role: { $ref: "#/components/schemas/Role" }
+        disabled: { type: boolean }
+    Invite:
+      type: object
+      required: [url, expiresAt]
+      properties:
+        url: { type: string, description: "Tautan sekali pakai; tokennya di fragmen `#t=`. Hanya tampil sekali." }
+        expiresAt: { type: integer }
+    AccessRequest:
+      type: object
+      required: [id, provider, email, name, portalRoles, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { enum: [sso, google] }
+        email: { type: string }
+        name: { type: string }
+        portalRoles: { type: array, items: { type: string } }
+        createdAt: { type: integer }
+
     Category:
       type: object
       required: [id, label, orderIndex, version, updatedAt, deletedAt]
@@ -1144,6 +1498,89 @@ components:
         caption: { type: string }
         createdAt: { $ref: "#/components/schemas/EpochMs" }
         deletedAt: { oneOf: [{ $ref: "#/components/schemas/EpochMs" }, { type: "null" }] }
+    PhotoInput:
+      type: object
+      required: [id, blobSha256, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        blobSha256: { $ref: "#/components/schemas/Sha256" }
+        takenAtSec: { type: [integer, "null"], minimum: 0 }
+        caption: { type: string, maxLength: 1000 }
+        createdAt: { $ref: "#/components/schemas/EpochMs" }
+        deletedAt: { oneOf: [{ $ref: "#/components/schemas/EpochMs" }, { type: "null" }] }
+    Revision:
+      type: object
+      required: [id, generatedAt, density, provider, templateName, reason, snapshot]
+      properties:
+        id: { type: string, format: uuid }
+        generatedAt: { $ref: "#/components/schemas/EpochMs" }
+        density: { type: string }
+        provider: { type: string }
+        templateName: { type: [string, "null"] }
+        reason: { enum: [regenerate, conflict, edit] }
+        snapshot: { type: object, description: "{summary, provider, templateName, sections:[{title,type,payload}]}", additionalProperties: true }
+    ImportChatRequest:
+      type: object
+      required: [text, title]
+      properties:
+        id: { type: string, format: uuid, description: "Opsional; server membuat bila kosong." }
+        text: { type: string, minLength: 1, maxLength: 300000 }
+        title: { type: string, minLength: 1, maxLength: 300 }
+        kind: { type: string, maxLength: 100, default: Lainnya }
+        templateId: { type: string, default: builtin_standard }
+        templateName: { type: string, default: Notulensi Standar }
+    TemplateInput:
+      type: object
+      required: [name, sections]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 1000 }
+        sections:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items:
+            type: object
+            required: [title, type]
+            properties: { title: { type: string, minLength: 1, maxLength: 200 }, type: { $ref: "#/components/schemas/SectionType" }, instruction: { type: string, maxLength: 2000 } }
+    ContextSource:
+      type: object
+      required: [id, recordingId, recordingTitle, kind, addedAt]
+      properties:
+        id: { type: string, format: uuid }
+        recordingId: { type: [string, "null"], format: uuid }
+        recordingTitle: { type: string }
+        kind: { enum: [NOTULENSI, TRANSCRIPT, BOTH] }
+        addedAt: { $ref: "#/components/schemas/EpochMs" }
+    KnowledgeContext:
+      type: object
+      required: [id, name, text, version, createdAt, updatedAt, sources]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        text: { type: string }
+        version: { type: integer }
+        createdAt: { $ref: "#/components/schemas/EpochMs" }
+        updatedAt: { $ref: "#/components/schemas/EpochMs" }
+        sources: { type: array, items: { $ref: "#/components/schemas/ContextSource" } }
+    KnowledgeContextInput:
+      type: object
+      required: [name, text]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        text: { type: string, maxLength: 40000 }
+        sources:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [id, recordingTitle, kind, addedAt]
+            properties:
+              id: { type: string, format: uuid }
+              recordingId: { type: [string, "null"], format: uuid }
+              recordingTitle: { type: string, maxLength: 300 }
+              kind: { enum: [NOTULENSI, TRANSCRIPT, BOTH] }
+              addedAt: { $ref: "#/components/schemas/EpochMs" }
     ChatMessage:
       type: object
       required: [id, orderIndex, isUser, text, createdAt]
