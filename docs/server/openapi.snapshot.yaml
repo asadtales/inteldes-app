@@ -804,6 +804,78 @@ paths:
       responses:
         "200": { description: Konteks., content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/KnowledgeContext" } } } } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/recordings/{id}/ask:
+    post:
+      tags: [Pemrosesan AI]
+      summary: Tanya AI tentang satu rapat
+      description: |
+        Port `ask()` Android: transkrip (dan ringkasan) menjadi bahan, riwayat chat ikut dikirim (30 pesan terakhir),
+        `contextId` opsional menambahkan konteks pengetahuan sebagai latar. Jawaban teks biasa (tanpa streaming).
+        Pertanyaan dan jawaban disimpan ke chat rapat (append-only) hanya bila AI berhasil menjawab. Dihitung dalam batas
+        `AI_DAILY_ASKS_PER_ORG` per 24 jam. Galat: `422 transcript_missing|secret_missing|model_missing`, `409 busy`,
+        `429 quota_exceeded|provider_rate_limited`, `502 provider_failed`, `504 provider_unreachable`.
+      operationId: askRecording
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/AskRequest" } } }
+      responses:
+        "200": { description: "Jawaban.", content: { application/json: { schema: { $ref: "#/components/schemas/AskResponse" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { description: "Belum siap (transkrip kosong, kunci atau model belum diisi).", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "502": { description: "Penyedia AI gagal.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "504": { description: "Penyedia AI tak terjangkau atau terlalu lama.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+  /v1/contexts/{id}/ask:
+    post:
+      tags: [Konteks]
+      summary: Tanya jawab berdasarkan satu konteks
+      description: Riwayat dikirim klien (maksimal 40 giliran) dan tidak disimpan di server, sama seperti di Android. Galat seperti `askRecording`; `422 context_empty` bila konteks kosong.
+      operationId: askContext
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ContextAskRequest" } } }
+      responses:
+        "200": { description: "Jawaban.", content: { application/json: { schema: { type: object, required: [answer], properties: { answer: { type: string } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "Belum siap.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "502": { description: "Penyedia AI gagal.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "504": { description: "Penyedia AI tak terjangkau atau terlalu lama.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+  /v1/contexts/{id}/revise:
+    post:
+      tags: [Konteks]
+      summary: Usulan revisi seluruh konteks
+      description: |
+        Mengembalikan seluruh dokumen hasil revisi (pagar ```markdown dibuang) dan tidak menyimpan apa pun. Klien menampilkan
+        usulan lalu menerapkannya lewat `PUT /v1/contexts/{id}` dengan `If-Match: baseVersion`. Konteks di atas 40.000
+        karakter ditolak `422 context_too_long`.
+      operationId: reviseContext
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ContextReviseRequest" } } }
+      responses:
+        "200": { description: "Usulan revisi.", content: { application/json: { schema: { type: object, required: [revised, baseVersion], properties: { revised: { type: string }, baseVersion: { type: integer } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "Belum siap atau konteks terlalu panjang.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "502": { description: "Penyedia AI gagal.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+        "504": { description: "Penyedia AI tak terjangkau atau terlalu lama.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
   /v1/contexts/{id}:
     get:
       tags: [Konteks]
@@ -1498,6 +1570,47 @@ components:
         caption: { type: string }
         createdAt: { $ref: "#/components/schemas/EpochMs" }
         deletedAt: { oneOf: [{ $ref: "#/components/schemas/EpochMs" }, { type: "null" }] }
+    AiOptions:
+      type: object
+      properties:
+        provider: { $ref: "#/components/schemas/AiProvider" }
+        language: { $ref: "#/components/schemas/Language" }
+        economy: { type: boolean }
+    AskRequest:
+      allOf:
+        - $ref: "#/components/schemas/AiOptions"
+        - type: object
+          required: [question]
+          properties:
+            question: { type: string, minLength: 1, maxLength: 2000 }
+            contextId: { type: string, format: uuid, description: "Konteks pengetahuan sebagai latar tambahan." }
+    AskResponse:
+      type: object
+      required: [answer, messages]
+      properties:
+        answer: { type: string }
+        messages:
+          type: array
+          description: Dua pesan chat yang baru disimpan (pertanyaan lalu jawaban).
+          items: { $ref: "#/components/schemas/ChatMessage" }
+    ContextAskRequest:
+      allOf:
+        - $ref: "#/components/schemas/AiOptions"
+        - type: object
+          required: [question]
+          properties:
+            question: { type: string, minLength: 1, maxLength: 2000 }
+            history:
+              type: array
+              maxItems: 40
+              items: { type: object, required: [isUser, text], properties: { isUser: { type: boolean }, text: { type: string, maxLength: 20000 } } }
+    ContextReviseRequest:
+      allOf:
+        - $ref: "#/components/schemas/AiOptions"
+        - type: object
+          required: [instruction]
+          properties:
+            instruction: { type: string, minLength: 1, maxLength: 2000 }
     PhotoInput:
       type: object
       required: [id, blobSha256, createdAt]

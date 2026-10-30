@@ -73,7 +73,18 @@ membuat. Nilai lain → `400 bad_if_match`.
   organisasi baru tanpa konfirmasi eksplisit (data satu desa bisa tercampur ke desa lain). Keluar tidak menghapus data lokal.
 - Perangkat yang dicabut admin menerima 401 dan harus login lagi; data lokal tetap utuh.
 
-## 6. Yang belum ada di server (jangan dipakai dulu)
+## 6. Tanya AI dan konteks (sudah ada)
 
-Tanya AI (`/ask`), tanya/perbaiki konteks (`/contexts/{id}/ask|revise`), transkripsi sebagian rentang waktu
-(`rangeStartSec/EndSec`, butuh ffmpeg), ekspor DOCX/PDF, potong audio. Semuanya tetap jalan lokal di app sampai server siap.
+- `POST /v1/recordings/{id}/ask` `{question, contextId?, provider?, language?, economy?}` → `{answer, messages}`. Server membaca transkrip
+  (dan ringkasan) dan 30 pesan chat terakhir, lalu **menyimpan pertanyaan + jawaban ke chat rapat** (`messages` berisi dua pesan baru, jadi
+  HP cukup menambahkannya ke Room; id-nya UUID server). Hanya tersimpan bila AI berhasil. Jawaban teks biasa, tanpa streaming.
+- `POST /v1/contexts/{id}/ask` `{question, history[]}` → `{answer}`; riwayat dikirim klien dan tidak disimpan (sama seperti di Android).
+- `POST /v1/contexts/{id}/revise` `{instruction}` → `{revised, baseVersion}`: hanya usulan. Terapkan dengan `PUT /v1/contexts/{id}`
+  `If-Match: baseVersion`. Konteks > 40.000 karakter → `422 context_too_long`.
+- Galat: `422 transcript_missing|secret_missing|model_missing|context_empty`, `409 busy`, `429 quota_exceeded|provider_rate_limited`,
+  `502 provider_failed`, `504 provider_unreachable`. Pembaca → 403. Mode langsung (HP memanggil AI sendiri) boleh tetap jadi cadangan offline.
+
+## 7. Yang belum ada di server (jangan dipakai dulu)
+
+Transkripsi sebagian rentang waktu (`rangeStartSec/EndSec`, butuh ffmpeg), ekspor DOCX/PDF, potong audio. Tetap jalan lokal di app sampai
+server siap.
