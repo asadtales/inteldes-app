@@ -40,6 +40,17 @@ data class SettingsUiState(
     val defaultTemplateName: String = "Notulensi Standar",
 )
 
+data class WebSyncUi(
+    val enabled: Boolean = false,
+    val progress: String? = null,
+    val lastRunAt: Long = 0,
+    val pushed: Int = 0,
+    val pulled: Int = 0,
+    val failed: Int = 0,
+    val summary: String = "",
+    val otherOrg: String? = null,
+)
+
 class SettingsViewModel(
     private val appContext: Context,
     private val store: AppSettingsStore,
@@ -48,11 +59,44 @@ class SettingsViewModel(
     private val syncStore: SyncStore,
     private val driveAuth: DriveAuth,
     private val account: com.inteldes.app.data.server.AccountService,
+    private val webSync: com.inteldes.app.data.web.WebSyncStore,
 ) : ViewModel() {
 
     /** The IntelDes server login of this install (null = local mode). */
     val serverSession: StateFlow<com.inteldes.app.data.server.Session?> = account.session
     fun logoutServer() { viewModelScope.launch { account.logout() } }
+
+    /** Live state of the web sync for the Settings card (the sync runs in a worker, so this is polled from its store). */
+    val webSyncState: StateFlow<WebSyncUi> = kotlinx.coroutines.flow.flow {
+        while (true) {
+            emit(
+                WebSyncUi(
+                    enabled = webSync.enabled, progress = webSync.progress, lastRunAt = webSync.lastRunAt,
+                    pushed = webSync.lastPushed, pulled = webSync.lastPulled, failed = webSync.lastFailed,
+                    summary = webSync.lastSummary, otherOrg = webSync.needsOrgConfirm,
+                ),
+            )
+            kotlinx.coroutines.delay(1500)
+        }
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), WebSyncUi())
+
+    fun setWebSync(on: Boolean) {
+        webSync.enabled = on
+        if (on) com.inteldes.app.data.work.WebSyncWorker.enqueue(appContext)
+    }
+
+    fun webSyncNow() = com.inteldes.app.data.work.WebSyncWorker.enqueue(appContext)
+
+    /** The user agreed to send this phone's recordings to the OTHER organisation they are now signed in to. */
+    fun confirmOrgSwitch() {
+        viewModelScope.launch {
+            runCatching { account.currentOrg() }.onSuccess {
+                webSync.switchOrg(it.id)
+                webSync.needsOrgConfirm = null
+                com.inteldes.app.data.work.WebSyncWorker.enqueue(appContext)
+            }
+        }
+    }
 
     /** Google Drive link + options of THIS device (every device connects its own account). */
     val sync: StateFlow<SyncSettings> = syncStore.settings

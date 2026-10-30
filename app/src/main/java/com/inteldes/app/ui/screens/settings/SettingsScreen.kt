@@ -63,6 +63,7 @@ fun SettingsScreen(
     val state by vm.uiState.collectAsStateWithLifecycle()
     val sync by vm.sync.collectAsStateWithLifecycle()
     val serverSession by vm.serverSession.collectAsStateWithLifecycle()
+    val webState by vm.webSyncState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     fun authFailure(e: Exception) {
@@ -174,7 +175,10 @@ fun SettingsScreen(
                 Spacer(Modifier.height(16.dp))
 
                 KickerLabel("Akun & web", modifier = Modifier.padding(bottom = 10.dp))
-                AccountSection(serverSession, onLogin = onLogin, onApprove = onApproveWebLogin, onLogout = vm::logoutServer)
+                AccountSection(
+                    serverSession, webState, onLogin = onLogin, onApprove = onApproveWebLogin, onLogout = vm::logoutServer,
+                    onWebSync = vm::setWebSync, onWebSyncNow = vm::webSyncNow, onConfirmOrg = vm::confirmOrgSwitch,
+                )
 
                 Spacer(Modifier.height(20.dp))
                 HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
@@ -534,11 +538,16 @@ private fun KeySlot(label: String, embedded: Boolean, current: String, onSave: (
 @Composable
 private fun AccountSection(
     session: com.inteldes.app.data.server.Session?,
+    web: WebSyncUi,
     onLogin: () -> Unit,
     onApprove: () -> Unit,
     onLogout: () -> Unit,
+    onWebSync: (Boolean) -> Unit,
+    onWebSyncNow: () -> Unit,
+    onConfirmOrg: () -> Unit,
 ) {
     var confirmLogout by remember { mutableStateOf(false) }
+    var confirmEnable by remember { mutableStateOf(false) }
     Column {
         if (session == null) {
             Text(
@@ -555,9 +564,28 @@ private fun AccountSection(
             Text(session.email, color = IdColor.Neutral600, fontSize = 11.5.sp)
             Spacer(Modifier.height(10.dp))
             DriveButton("MASUK WEB DENGAN QR", filled = true, onClick = onApprove)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(14.dp))
+            WebSyncCard(web, canWrite = session.role != "pembaca", onEnable = { confirmEnable = true }, onDisable = { onWebSync(false) }, onNow = onWebSyncNow, onConfirmOrg = onConfirmOrg)
+            Spacer(Modifier.height(14.dp))
             DriveButton("KELUAR DARI SERVER", filled = false, onClick = { confirmLogout = true })
         }
+    }
+    if (confirmEnable) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmEnable = false },
+            title = { Text("Aktifkan sinkron ke web?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Rekaman di HP ini (audio, transkrip, notulensi, penanda, foto, chat, template, konteks) akan dikirim ke server " +
+                        "organisasi ${session?.orgName.orEmpty()}, dan rekaman dari web diambil ke sini.\n\n" +
+                        "Tidak ada rekaman di HP yang dihapus oleh sinkron ini. Rekaman yang dihapus di web tetap ada di HP. " +
+                        "Sinkron Google Drive tidak berubah.",
+                    fontSize = 13.sp, color = IdColor.Neutral700, lineHeight = 18.sp,
+                )
+            },
+            confirmButton = { Text("AKTIFKAN", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { confirmEnable = false; onWebSync(true) }.padding(10.dp)) },
+            dismissButton = { Text("Batal", color = IdColor.Neutral700, modifier = Modifier.clickable { confirmEnable = false }.padding(10.dp)) },
+        )
     }
     if (confirmLogout) {
         androidx.compose.material3.AlertDialog(
@@ -567,5 +595,59 @@ private fun AccountSection(
             confirmButton = { Text("KELUAR", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { confirmLogout = false; onLogout() }.padding(10.dp)) },
             dismissButton = { Text("Batal", color = IdColor.Neutral700, modifier = Modifier.clickable { confirmLogout = false }.padding(10.dp)) },
         )
+    }
+}
+
+@Composable
+private fun WebSyncCard(
+    web: WebSyncUi,
+    canWrite: Boolean,
+    onEnable: () -> Unit,
+    onDisable: () -> Unit,
+    onNow: () -> Unit,
+    onConfirmOrg: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().border(1.dp, IdColor.Neutral300).padding(12.dp)) {
+        Text("SINKRON KE WEB", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
+        Spacer(Modifier.height(4.dp))
+        if (!canWrite) {
+            Text("Peran pembaca hanya melihat. Rekaman HP ini tidak dikirim ke web.", color = IdColor.Neutral700, fontSize = 12.sp, lineHeight = 17.sp)
+            return@Column
+        }
+        Text(
+            if (web.enabled) "Aktif" else "Mati - rekaman hanya ada di HP ini",
+            fontWeight = FontWeight.Bold, fontSize = 14.sp,
+        )
+        if (web.progress != null) {
+            Text(web.progress, color = IdColor.Accent, fontSize = 12.sp)
+        } else if (web.enabled) {
+            val whenText = if (web.lastRunAt > 0) {
+                android.text.format.DateUtils.getRelativeTimeSpanString(web.lastRunAt, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString()
+            } else "belum pernah"
+            Text("Terakhir: $whenText", color = IdColor.Neutral700, fontSize = 12.sp)
+            Text(
+                "Terkirim ${web.pushed} · Diterima ${web.pulled} · Gagal ${web.failed}",
+                color = if (web.failed > 0) IdColor.Accent else IdColor.Neutral700, fontSize = 12.sp,
+            )
+            if (web.summary.isNotBlank() && web.summary != "Selesai.") Text(web.summary, color = IdColor.Neutral700, fontSize = 11.5.sp, lineHeight = 16.sp)
+        }
+        if (web.otherOrg != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Akun ini milik organisasi \"${web.otherOrg}\", berbeda dari yang terakhir dipakai HP ini. " +
+                    "Rekaman HP belum dikirim. Kirim ke organisasi ini? Data dua desa bisa tercampur bila salah.",
+                color = IdColor.Accent, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(6.dp))
+            DriveButton("YA, KIRIM KE ORGANISASI INI", filled = true, onClick = onConfirmOrg)
+        }
+        Spacer(Modifier.height(10.dp))
+        if (web.enabled) {
+            DriveButton("SINKRONKAN SEKARANG", filled = true, onClick = onNow)
+            Spacer(Modifier.height(8.dp))
+            DriveButton("MATIKAN SINKRON WEB", filled = false, onClick = onDisable)
+        } else {
+            DriveButton("AKTIFKAN SINKRON KE WEB", filled = true, onClick = onEnable)
+        }
     }
 }
