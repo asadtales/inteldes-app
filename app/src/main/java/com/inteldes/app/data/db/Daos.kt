@@ -122,6 +122,9 @@ interface TemplateDao {
     @Query("SELECT * FROM templates WHERE id = :id")
     suspend fun getOne(id: String): TemplateEntity?
 
+    @Query("SELECT * FROM templates ORDER BY createdAt")
+    suspend fun all(): List<TemplateEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: TemplateEntity)
 
@@ -185,6 +188,12 @@ interface ContextDao {
 
     @Query("SELECT * FROM knowledge_contexts WHERE id = :id")
     suspend fun getOne(id: String): KnowledgeContextEntity?
+
+    @Query("SELECT * FROM knowledge_contexts ORDER BY createdAt")
+    suspend fun all(): List<KnowledgeContextEntity>
+
+    @Query("SELECT * FROM context_sources WHERE contextId = :contextId ORDER BY addedAt, id")
+    suspend fun sourcesOf(contextId: String): List<ContextSourceEntity>
 
     @Query("SELECT * FROM context_sources WHERE contextId = :contextId ORDER BY addedAt, id")
     fun observeSources(contextId: String): Flow<List<ContextSourceEntity>>

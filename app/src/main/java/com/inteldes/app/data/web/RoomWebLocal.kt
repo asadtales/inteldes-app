@@ -51,6 +51,10 @@ class RoomWebLocal(context: Context, private val db: IntelDesDatabase) : WebLoca
             marks = db.recordingMarkDao().list(id).map { WebMark(markId(id, it), it.timestampSec.coerceAtLeast(0), it.label.take(300), it.createdAt) },
             chat = db.chatDao().list(id).map { WebChat(chatId(id, it), it.orderIndex, it.isUser, it.text, it.createdAt) },
             audioFile = r.audioFilePath?.let(::File)?.takeIf { it.exists() && it.length() > 0 },
+            photos = db.photoDao().list(id).mapNotNull { p ->
+                val f = File(p.filePath).takeIf { it.exists() && it.length() > 0 } ?: return@mapNotNull null
+                LocalPhoto(photoId(id, p), f, p.takenAtSec, p.caption, p.createdAt)
+            },
         )
     }
 

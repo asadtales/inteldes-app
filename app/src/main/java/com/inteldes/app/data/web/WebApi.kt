@@ -26,7 +26,7 @@ class WebApi(
     private val server: ServerApi,
     private val gson: Gson = Gson(),
     chunkBytes: Int = 4 * 1024 * 1024,
-) : WebRemote {
+) : WebRemote, WebLibraryRemote {
     private val base = server.baseUrlString.trimEnd('/')
     private val chunk = chunkBytes.coerceIn(64 * 1024, 8 * 1024 * 1024)       // the server caps one piece at 8 MB
     private val client: OkHttpClient = server.sessionClient.newBuilder()
@@ -88,6 +88,13 @@ class WebApi(
         }
     }
 
+    override suspend fun putPhotos(id: String, photos: List<WebPhoto>) {
+        for (part in photos.chunked(200)) {
+            val body = JsonObject().apply { add("photos", gson.toJsonTree(part)) }
+            text(put("/v1/recordings/$id/photos", gson.toJson(body), null))
+        }
+    }
+
     override suspend fun deleteRecording(id: String) {
         text(Request.Builder().url("$base/v1/recordings/$id").delete().build())
     }
@@ -95,6 +102,28 @@ class WebApi(
     override suspend fun putCategory(id: String, label: String, orderIndex: Int, ifMatch: Int): WebCategory {
         val body = JsonObject().apply { addProperty("label", label); addProperty("orderIndex", orderIndex) }
         return gson.fromJson(text(put("/v1/categories/$id", gson.toJson(body), ifMatch)), WebCategory::class.java)
+    }
+
+    // ───────────────────────── templates and contexts (create-only) ─────────────────────────
+
+    override suspend fun listTemplates(): List<WebTemplate> {
+        val json = com.google.gson.JsonParser.parseString(text(get("/v1/templates"))).asJsonObject
+        return gson.fromJson(json["items"], Array<WebTemplate>::class.java).toList()
+    }
+
+    override suspend fun createTemplate(id: String, name: String, description: String, sections: List<WebTemplateSection>) {
+        val body = JsonObject().apply { addProperty("name", name); addProperty("description", description); add("sections", gson.toJsonTree(sections)) }
+        text(put("/v1/templates/$id", gson.toJson(body), 0))
+    }
+
+    override suspend fun listContexts(): List<WebContext> {
+        val json = com.google.gson.JsonParser.parseString(text(get("/v1/contexts"))).asJsonObject
+        return gson.fromJson(json["items"], Array<WebContext>::class.java).toList()
+    }
+
+    override suspend fun createContext(id: String, name: String, text: String, sources: List<WebContextSource>) {
+        val body = JsonObject().apply { addProperty("name", name); addProperty("text", text); add("sources", gson.toJsonTree(sources)) }
+        text(put("/v1/contexts/$id", gson.toJson(body), 0))
     }
 
     // ───────────────────────── blobs ─────────────────────────

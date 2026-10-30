@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 8,
-    "identityHash": "d1f232739c12f688e33f3fc570861865",
+    "identityHash": "c2b62bb248c7a622530d2d5b8fe2bc3e",
     "entities": [
       {
         "tableName": "recordings",
@@ -786,7 +786,7 @@
       },
       {
         "tableName": "web_sync_state",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recordingId` TEXT NOT NULL, `serverVersion` INTEGER NOT NULL, `transcriptVersion` INTEGER NOT NULL, `notesVersion` INTEGER NOT NULL, `metaHash` TEXT NOT NULL, `transcriptHash` TEXT NOT NULL, `notesHash` TEXT NOT NULL, `marksHash` TEXT NOT NULL, `chatHash` TEXT NOT NULL, `audioSha` TEXT, `audioLen` INTEGER NOT NULL, `pushedMarksJson` TEXT NOT NULL, `audioMissing` INTEGER NOT NULL, PRIMARY KEY(`recordingId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`recordingId` TEXT NOT NULL, `serverVersion` INTEGER NOT NULL, `transcriptVersion` INTEGER NOT NULL, `notesVersion` INTEGER NOT NULL, `metaHash` TEXT NOT NULL, `transcriptHash` TEXT NOT NULL, `notesHash` TEXT NOT NULL, `marksHash` TEXT NOT NULL, `chatHash` TEXT NOT NULL, `audioSha` TEXT, `audioLen` INTEGER NOT NULL, `pushedMarksJson` TEXT NOT NULL, `audioMissing` INTEGER NOT NULL, `photosHash` TEXT NOT NULL, `pushedPhotosJson` TEXT NOT NULL, PRIMARY KEY(`recordingId`))",
         "fields": [
           {
             "fieldPath": "recordingId",
@@ -865,6 +865,18 @@
             "columnName": "audioMissing",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "photosHash",
+            "columnName": "photosHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pushedPhotosJson",
+            "columnName": "pushedPhotosJson",
+            "affinity": "TEXT",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -880,7 +892,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd1f232739c12f688e33f3fc570861865')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c2b62bb248c7a622530d2d5b8fe2bc3e')"
     ]
   }
 }

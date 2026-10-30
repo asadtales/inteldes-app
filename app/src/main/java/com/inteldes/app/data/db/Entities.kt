@@ -198,4 +198,6 @@ data class WebSyncStateEntity(
     val audioLen: Long,
     val pushedMarksJson: String,
     val audioMissing: Boolean,
+    val photosHash: String,
+    val pushedPhotosJson: String,
 )

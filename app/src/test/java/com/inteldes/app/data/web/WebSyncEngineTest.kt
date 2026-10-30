@@ -101,6 +101,17 @@ private class FakeServer : WebRemote {
         messages.forEach { r.chat.putIfAbsent(it.id, it) }
     }
 
+    override suspend fun putPhotos(id: String, photos: List<WebPhoto>) {
+        calls += "putPhotos"
+        val r = recs[id] ?: throw ServerException(404, "not_found", "x")
+        photos.forEach { p ->
+            if (p.deletedAt == null && p.blobSha256 !in blobs) throw ServerException(409, "blob_missing", "x")
+            r.photos.removeAll { it.id == p.id }
+            r.photos += p
+        }
+        touch(id)
+    }
+
     override suspend fun deleteRecording(id: String) {
         calls += "delete"
         val r = recs[id] ?: throw ServerException(404, "not_found", "x")
@@ -142,7 +153,8 @@ private class FakeServer : WebRemote {
 
 private class FakeLocal(private val dir: File) : WebLocal {
     class Rec(var input: WebRecordingInput, var transcript: List<WebSegment> = emptyList(), var sections: List<WebSection> = emptyList(),
-              var marks: List<WebMark> = emptyList(), var chat: List<WebChat> = emptyList(), var audio: File? = null, var working: Boolean = false)
+              var marks: List<WebMark> = emptyList(), var chat: List<WebChat> = emptyList(), var audio: File? = null, var working: Boolean = false,
+              var photos: List<LocalPhoto> = emptyList())
 
     val recs = linkedMapOf<String, Rec>()
     val cats = mutableListOf<LocalCategory>()
@@ -164,7 +176,7 @@ private class FakeLocal(private val dir: File) : WebLocal {
     override suspend fun aggregate(id: String): LocalAggregate? {
         val r = recs[id] ?: return null
         if (r.working) return null
-        return LocalAggregate(id, r.input, r.transcript, r.sections, r.marks, r.chat, r.audio)
+        return LocalAggregate(id, r.input, r.transcript, r.sections, r.marks, r.chat, r.audio, r.photos)
     }
     override suspend fun hasAudio(id: String) = recs[id]?.audio?.exists() == true
     override suspend fun hasPhoto(recordingId: String, photoId: String) = false
@@ -425,5 +437,31 @@ class WebSyncEngineTest {
         val report = sync()
         assertEquals(1, report.failed)
         assertNotNull(server.recs["ok"])
+    }
+
+    @Test
+    fun photosAreUploadedOnceMergedAndARemovedPhotoBecomesATombstone() {
+        phone.create("r1", "Rapat")
+        val img = File(dir, "p1.jpg").apply { writeText("JPEGDATA") }
+        val img2 = File(dir, "p2.jpg").apply { writeText("JPEGDATA") }       // same bytes: one blob
+        phone.recs.getValue("r1").photos = listOf(LocalPhoto("ph1", img, 30, "Papan tulis", 5L), LocalPhoto("ph2", img2, null, "", 6L))
+        sync()
+        assertEquals(2, server.recs.getValue("r1").photos.size)
+        assertEquals(1, server.count("upload"))
+        phone.recs.getValue("r1").photos = phone.recs.getValue("r1").photos.filter { it.id == "ph1" }
+        sync()
+        assertEquals(listOf("ph1"), server.recs.getValue("r1").photos.filter { it.deletedAt == null }.map { it.id })
+        assertTrue(server.recs.getValue("r1").photos.any { it.id == "ph2" && it.deletedAt != null })
+    }
+
+    @Test
+    fun marksOnlyThePhoneHasStillGoUpAfterAFirstContactAdoptsTheServerCopy() {
+        server.webCreate("r1", "Di server")
+        server.webReplaceNotes("r1", "Sudah ada notulensi")
+        phone.create("r1", "Di HP")
+        phone.mark("r1", 42, "hanya di hp")
+        sync()
+        assertTrue(server.recs.getValue("r1").marks.values.any { it.label == "hanya di hp" })
+        assertEquals(1, phone.recs.getValue("r1").marks.count { it.label == "hanya di hp" })
     }
 }

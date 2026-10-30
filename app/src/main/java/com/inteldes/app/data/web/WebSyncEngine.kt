@@ -22,6 +22,9 @@ interface WebRemote {
     /** Merged by id on the server; an entry with `deletedAt` deletes. */
     suspend fun putMarks(id: String, marks: List<WebMark>)
     suspend fun postChat(id: String, messages: List<WebChat>)
+
+    /** Merged by id on the server; the photo files must be uploaded first (`409 blob_missing` otherwise). */
+    suspend fun putPhotos(id: String, photos: List<WebPhoto>)
     suspend fun deleteRecording(id: String)
     suspend fun listCategories(): List<WebCategory>
     suspend fun putCategory(id: String, label: String, orderIndex: Int, ifMatch: Int): WebCategory
@@ -32,6 +35,9 @@ interface WebRemote {
 
 class LocalCategory(val id: String, val label: String, val orderIndex: Int)
 
+/** A photo as the phone holds it: [id] is the server's id (or the content-derived one), [file] the image. */
+class LocalPhoto(val id: String, val file: File, val takenAtSec: Int?, val caption: String, val createdAt: Long)
+
 /** A recording as the phone holds it, in the shapes the server takes. */
 class LocalAggregate(
     val id: String,
@@ -41,6 +47,7 @@ class LocalAggregate(
     val marks: List<WebMark>,
     val chat: List<WebChat>,
     val audioFile: File?,
+    val photos: List<LocalPhoto> = emptyList(),
 )
 
 /** The phone side. Implementations must never delete a recording on their own. */
@@ -77,6 +84,8 @@ data class WebState(
     val audioLen: Long,
     val pushedMarksJson: String,
     val audioMissing: Boolean,
+    val photosHash: String = "",
+    val pushedPhotosJson: String = "[]",
 )
 
 interface WebStateStore {
@@ -236,10 +245,10 @@ class WebSyncEngine(
      */
     private suspend fun adoptFromServer(
         server: WebAggregate, report: WebSyncReport,
-        prior: WebState? = null, phone: LocalAggregate? = null, keep: Set<String> = emptySet(),
+        prior: WebState? = null, phone: LocalAggregate? = null, keep: Set<String> = emptySet(), children: Boolean = false,
     ) {
         val id = server.recording.id
-        if (phone != null && keep.isNotEmpty()) {
+        if (phone != null) {
             val i = phone.input
             val s = server.recording
             val mine = if ("meta" in keep) s.copy(
@@ -255,13 +264,13 @@ class WebSyncEngine(
                     if ("notes" in keep) WebNotesPart(server.notes.version, phone.sections) else server.notes,
                     server.marks, server.photos, server.chat,
                 ),
-                server, report, prior, keep,
+                server, report, prior, keep, children = true,
             )
         }
-        adoptMerged(server, server, report, null, emptySet())
+        adoptMerged(server, server, report, prior, emptySet(), children)
     }
 
-    private suspend fun adoptMerged(server: WebAggregate, original: WebAggregate, report: WebSyncReport, prior: WebState?, keep: Set<String>) {
+    private suspend fun adoptMerged(server: WebAggregate, original: WebAggregate, report: WebSyncReport, prior: WebState?, keep: Set<String>, children: Boolean) {
         val id = server.recording.id
         val sha = server.recording.audioBlobSha256
         var audio: File? = null
@@ -288,9 +297,18 @@ class WebSyncEngine(
                 metaHash = if ("meta" in keep && prior != null) prior.metaHash else h?.meta.orEmpty(),
                 transcriptHash = if ("transcript" in keep && prior != null) prior.transcriptHash else h?.transcript.orEmpty(),
                 notesHash = if ("notes" in keep && prior != null) prior.notesHash else h?.notes.orEmpty(),
-                marksHash = h?.marks.orEmpty(), chatHash = h?.chat.orEmpty(),
+                // Marks, chat and photos are merged by id, so anything only the phone has must still go up: when the phone
+                // held its own copy (merge / first contact) these stay "dirty" and the next push sends the union.
+                marksHash = if (children) prior?.marksHash.orEmpty() else h?.marks.orEmpty(),
+                chatHash = if (children) prior?.chatHash.orEmpty() else h?.chat.orEmpty(),
+                photosHash = if (children) prior?.photosHash.orEmpty() else h?.photos.orEmpty(),
                 audioSha = sha, audioLen = file?.length() ?: 0,
-                pushedMarksJson = gson.toJson(after?.marks ?: emptyList<WebMark>()),
+                pushedMarksJson = gson.toJson(
+                    (marksOf(prior?.pushedMarksJson) + server.marks.filter { it.deletedAt == null } + (after?.marks ?: emptyList())).distinctBy { it.id },
+                ),
+                pushedPhotosJson = gson.toJson(
+                    (photosOf(prior?.pushedPhotosJson) + server.photos.filter { it.deletedAt == null }).distinctBy { it.id },
+                ),
                 audioMissing = audioMissing,
             ),
         )
@@ -338,7 +356,10 @@ class WebSyncEngine(
                     report.ignoredServerDeletes++
                     saveState(id, h, Versions(server.recording.version, server.transcript.version, server.notes.version), sha, len, agg)
                 }
-                richness(server) > richness(agg) -> adoptFromServer(server, report)
+                richness(server) > richness(agg) -> {
+                    adoptFromServer(server, report, null, agg, emptySet(), children = true)
+                    pushOne(id, report)                              // now that it has a state: send what only the phone had (marks, chat, photos)
+                }
                 else -> pushParts(id, agg, input, h, Versions(server.recording.version, server.transcript.version, server.notes.version), prior = null, sha, len, report)
             }
         } else {
@@ -366,7 +387,8 @@ class WebSyncEngine(
                 if (agg.marks.isNotEmpty() || gone.isNotEmpty()) remote.putMarks(id, agg.marks + gone)
             }
             if (agg.chat.isNotEmpty() && dirty(prior?.chatHash, h.chat)) remote.postChat(id, agg.chat)
-            saveState(id, h, Versions(meta, transcript, notes), sha, len, agg)
+            val photosJson = if (dirty(prior?.photosHash, h.photos)) pushPhotos(id, agg, prior) else prior?.pushedPhotosJson ?: "[]"
+            saveState(id, h, Versions(meta, transcript, notes), sha, len, agg, photosJson)
             report.pushed++
         } catch (e: ServerException) {
             if (e.status != 409 || retried) throw e
@@ -384,12 +406,41 @@ class WebSyncEngine(
         }
     }
 
-    private suspend fun saveState(id: String, h: Hashes, v: Versions, sha: String?, len: Long, agg: LocalAggregate) {
+    /** Uploads the photo files the server lacks, then merges the list. A photo removed on the phone is sent as a tombstone. */
+    private suspend fun pushPhotos(id: String, agg: LocalAggregate, prior: WebState?): String {
+        val before = photosOf(prior?.pushedPhotosJson)
+        val shaOf = before.associate { it.id to it.blobSha256 }
+        val list = mutableListOf<WebPhoto>()
+        for (p in agg.photos) {
+            val sha = sha256(p.file)
+            if (!remote.blobExists(sha)) remote.uploadBlob(sha, mimeOf(p.file), p.file)
+            list += WebPhoto(p.id, sha, p.takenAtSec?.coerceAtLeast(0), p.caption.take(1000), p.createdAt)
+        }
+        val now = System.currentTimeMillis()
+        val gone = before.filter { b -> agg.photos.none { it.id == b.id } }.map { WebPhoto(it.id, shaOf.getValue(it.id), it.takenAtSec, it.caption, it.createdAt, deletedAt = now) }
+        if (list.isNotEmpty() || gone.isNotEmpty()) remote.putPhotos(id, list + gone)
+        return gson.toJson(list)
+    }
+
+    private fun mimeOf(file: File): String = when (file.extension.lowercase()) {
+        "png" -> "image/png"
+        "webp" -> "image/webp"
+        else -> "image/jpeg"
+    }
+
+    private fun marksOf(json: String?): List<WebMark> =
+        if (json.isNullOrBlank()) emptyList() else runCatching { gson.fromJson(json, Array<WebMark>::class.java).toList() }.getOrDefault(emptyList())
+
+    private fun photosOf(json: String?): List<WebPhoto> =
+        if (json.isNullOrBlank()) emptyList() else runCatching { gson.fromJson(json, Array<WebPhoto>::class.java).toList() }.getOrDefault(emptyList())
+
+    private suspend fun saveState(id: String, h: Hashes, v: Versions, sha: String?, len: Long, agg: LocalAggregate, photosJson: String = "[]") {
         store.put(
             WebState(
                 recordingId = id, serverVersion = v.server, transcriptVersion = v.transcript, notesVersion = v.notes,
                 metaHash = h.meta, transcriptHash = h.transcript, notesHash = h.notes, marksHash = h.marks, chatHash = h.chat,
                 audioSha = sha, audioLen = len, pushedMarksJson = gson.toJson(agg.marks), audioMissing = false,
+                photosHash = h.photos, pushedPhotosJson = photosJson,
             ),
         )
     }
@@ -402,8 +453,8 @@ class WebSyncEngine(
     private fun richness(agg: LocalAggregate): Int =
         (if (agg.input.status == "DONE") 4 else 0) + (if (agg.sections.isNotEmpty()) 2 else 0) + (if (agg.transcript.isNotEmpty()) 1 else 0)
 
-    class Hashes(val meta: String, val transcript: String, val notes: String, val marks: String, val chat: String) {
-        fun matches(s: WebState) = meta == s.metaHash && transcript == s.transcriptHash && notes == s.notesHash && marks == s.marksHash && chat == s.chatHash
+    class Hashes(val meta: String, val transcript: String, val notes: String, val marks: String, val chat: String, val photos: String) {
+        fun matches(s: WebState) = meta == s.metaHash && transcript == s.transcriptHash && notes == s.notesHash && marks == s.marksHash && chat == s.chatHash && photos == s.photosHash
     }
 
     private fun hashesOf(agg: LocalAggregate): Hashes = Hashes(
@@ -412,6 +463,7 @@ class WebSyncEngine(
         notes = sha256(gson.toJson(agg.sections)),
         marks = sha256(gson.toJson(agg.marks.sortedBy { it.id })),
         chat = sha256(gson.toJson(agg.chat.sortedBy { it.id })),
+        photos = sha256(gson.toJson(agg.photos.sortedBy { it.id }.map { listOf(it.id, it.takenAtSec, it.caption, it.createdAt, it.file.length()) })),
     )
 
     private fun fail(report: WebSyncReport, what: String, e: Exception) {

@@ -19,6 +19,7 @@ internal val MIGRATION_7_8 = object : Migration(7, 8) {
                 "`notesVersion` INTEGER NOT NULL, `metaHash` TEXT NOT NULL, `transcriptHash` TEXT NOT NULL, " +
                 "`notesHash` TEXT NOT NULL, `marksHash` TEXT NOT NULL, `chatHash` TEXT NOT NULL, `audioSha` TEXT, " +
                 "`audioLen` INTEGER NOT NULL, `pushedMarksJson` TEXT NOT NULL, `audioMissing` INTEGER NOT NULL, " +
+                "`photosHash` TEXT NOT NULL, `pushedPhotosJson` TEXT NOT NULL, " +
                 "PRIMARY KEY(`recordingId`))",
         )
     }
