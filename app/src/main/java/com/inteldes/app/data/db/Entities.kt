@@ -1,5 +1,6 @@
 package com.inteldes.app.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -200,4 +201,6 @@ data class WebSyncStateEntity(
     val audioMissing: Boolean,
     val photosHash: String,
     val pushedPhotosJson: String,
+    /** Server `updatedAt` last seen: marks/photos/chat changed on the web move only this (see WebState.serverUpdatedAt). */
+    @ColumnInfo(defaultValue = "0") val serverUpdatedAt: Long = 0,
 )

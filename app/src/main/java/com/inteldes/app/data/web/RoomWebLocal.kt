@@ -128,6 +128,21 @@ class RoomWebLocal(context: Context, private val db: IntelDesDatabase) : WebLoca
                 )
             }
 
+            mergeChildren(id, server, photoFiles)
+        }
+    }
+
+    override suspend fun applyChildren(server: WebAggregate, photoFiles: Map<String, File>): Boolean = db.withTransaction {
+        val id = server.recording.id
+        val existing = db.recordingDao().getOne(id) ?: return@withTransaction false
+        if (existing.status == RecordingStatus.WORKING) return@withTransaction false          // the pipeline owns it right now
+        mergeChildren(id, server, photoFiles)
+        true
+    }
+
+    /** Marks, chat and photos merged by id (web tombstones remove). Adds and removes only; never edits the recording itself. */
+    private suspend fun mergeChildren(id: String, server: WebAggregate, photoFiles: Map<String, File>) {
+        run {
             val marks = db.recordingMarkDao().list(id)
             val markIds = marks.associateBy { markId(id, it) }
             server.marks.filter { it.deletedAt == null && it.id !in markIds }.forEach {

@@ -29,7 +29,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ContextSourceEntity::class,
         WebSyncStateEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -90,7 +90,7 @@ abstract class IntelDesDatabase : RoomDatabase() {
                     context.applicationContext,
                     IntelDesDatabase::class.java,
                     "inteldes.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build().also { instance = it }
             }
 
         /**
@@ -102,7 +102,7 @@ abstract class IntelDesDatabase : RoomDatabase() {
                 val file = context.getDatabasePath("inteldes.db")
                 if (!file.exists()) return
                 val old = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { it.version }
-                if (old <= 0 || old >= 8) return
+                if (old <= 0 || old >= 9) return
                 val bak = java.io.File(file.parentFile, "inteldes_v$old.bak")
                 if (!bak.exists()) {
                     // The WAL may hold recent writes, so checkpoint through a normal open first.

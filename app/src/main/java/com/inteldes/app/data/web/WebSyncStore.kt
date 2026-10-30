@@ -88,12 +88,12 @@ class WebSyncStore(context: Context, db: IntelDesDatabase) : WebStateStore {
 
     private fun WebSyncStateEntity.toState() = WebState(
         recordingId, serverVersion, transcriptVersion, notesVersion, metaHash, transcriptHash, notesHash, marksHash, chatHash,
-        audioSha, audioLen, pushedMarksJson, audioMissing, photosHash, pushedPhotosJson,
+        audioSha, audioLen, pushedMarksJson, audioMissing, photosHash, pushedPhotosJson, serverUpdatedAt,
     )
 
     private fun WebState.toEntity() = WebSyncStateEntity(
         recordingId, serverVersion, transcriptVersion, notesVersion, metaHash, transcriptHash, notesHash, marksHash, chatHash,
-        audioSha, audioLen, pushedMarksJson, audioMissing, photosHash, pushedPhotosJson,
+        audioSha, audioLen, pushedMarksJson, audioMissing, photosHash, pushedPhotosJson, serverUpdatedAt,
     )
 
     companion object {

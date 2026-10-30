@@ -65,6 +65,13 @@ interface WebLocal {
 
     /** Creates or updates the recording from [server]: transcript/notes replaced, marks/chat/photos merged by id. */
     suspend fun applyServer(server: WebAggregate, audio: File?, photoFiles: Map<String, File>)
+
+    /**
+     * Merges ONLY marks, chat and photos from [server] (by id, web tombstones included). Never touches the
+     * recording's metadata, transcript or notulensi. Returns false when it declined (recording missing, or
+     * being processed here right now): the caller then tries again on a later sync.
+     */
+    suspend fun applyChildren(server: WebAggregate, photoFiles: Map<String, File>): Boolean
     suspend fun categories(): List<LocalCategory>
     suspend fun addCategory(id: String, label: String, orderIndex: Int)
 }
@@ -86,6 +93,12 @@ data class WebState(
     val audioMissing: Boolean,
     val photosHash: String = "",
     val pushedPhotosJson: String = "[]",
+    /**
+     * The server's `updatedAt` for this recording when we last looked. The three versions above only move when
+     * metadata, transcript or notulensi change; marks, photos and chat added on the web move NONE of them, only
+     * `updatedAt`. 0 = never recorded (a refresh happens once, which is harmless).
+     */
+    val serverUpdatedAt: Long = 0,
 )
 
 interface WebStateStore {
@@ -213,7 +226,12 @@ class WebSyncEngine(
         val st = store.get(id)
         if (st != null && st.serverVersion == server.recording.version &&
             st.transcriptVersion == server.transcript.version && st.notesVersion == server.notes.version
-        ) { store.removeRetry(id); return }                       // nothing new (typically the echo of our own push)
+        ) {
+            // Same versions, but the web may still have added/removed marks, photos or chat (they bump `updatedAt` only).
+            if (st.serverUpdatedAt != server.recording.updatedAt && !refreshChildren(server, st)) return   // incomplete: retried next run
+            store.removeRetry(id)
+            return                                                // nothing else new (typically the echo of our own push)
+        }
 
         when {
             !local.exists(id) -> adoptFromServer(server, report)
@@ -279,12 +297,7 @@ class WebSyncEngine(
             val target = local.audioTarget(id, sha, server.recording.audioMimeType)
             audio = try { remote.downloadBlob(sha, target); target } catch (e: CancellationException) { throw e } catch (e: AuthException) { throw e } catch (e: Exception) { audioMissing = true; null }
         }
-        val photoFiles = mutableMapOf<String, File>()
-        for (p in server.photos.filter { it.deletedAt == null }) {
-            if (local.hasPhoto(id, p.id)) continue
-            val dest = local.photoTarget(p.blobSha256)
-            try { remote.downloadBlob(p.blobSha256, dest); photoFiles[p.id] = dest } catch (e: CancellationException) { throw e } catch (e: AuthException) { throw e } catch (e: Exception) { /* photo later; not worth failing the recording */ }
-        }
+        val photoFiles = downloadPhotos(server)
         local.applyServer(server, audio, photoFiles)
         val after = local.aggregate(id)
         val h = if (after != null) hashesOf(after) else null
@@ -310,9 +323,50 @@ class WebSyncEngine(
                     (photosOf(prior?.pushedPhotosJson) + server.photos.filter { it.deletedAt == null }).distinctBy { it.id },
                 ),
                 audioMissing = audioMissing,
+                serverUpdatedAt = server.recording.updatedAt,
             ),
         )
         report.pulled++
+    }
+
+    /** Downloads the photo files the phone lacks. A failed one is skipped (not worth failing the recording). */
+    private suspend fun downloadPhotos(server: WebAggregate): Map<String, File> {
+        val id = server.recording.id
+        val files = mutableMapOf<String, File>()
+        for (p in server.photos.filter { it.deletedAt == null }) {
+            if (local.hasPhoto(id, p.id)) continue
+            val dest = local.photoTarget(p.blobSha256)
+            try { remote.downloadBlob(p.blobSha256, dest); files[p.id] = dest } catch (e: CancellationException) { throw e } catch (e: AuthException) { throw e } catch (e: Exception) { /* photo later */ }
+        }
+        return files
+    }
+
+    /**
+     * Brings in marks, photos and chat the web changed while the recording's versions stayed put. Returns false
+     * (and queues a retry) when it could not finish, so the new [WebState.serverUpdatedAt] is only saved once
+     * everything arrived. Hashes of the children are moved forward only if the phone had no unsent children of
+     * its own; otherwise they stay "dirty" and the next push sends the union (the server merges by id).
+     */
+    private suspend fun refreshChildren(server: WebAggregate, st: WebState): Boolean {
+        val id = server.recording.id
+        val before = local.aggregate(id)
+        val clean = before != null && hashesOf(before).let { it.marks == st.marksHash && it.chat == st.chatHash && it.photos == st.photosHash }
+        val photoFiles = downloadPhotos(server)
+        if (!local.applyChildren(server, photoFiles)) { store.addRetry(id); return false }
+        if (server.photos.any { it.deletedAt == null && it.id !in photoFiles && !local.hasPhoto(id, it.id) }) { store.addRetry(id); return false }
+        val after = local.aggregate(id)
+        val h = if (after != null) hashesOf(after) else null
+        store.put(
+            st.copy(
+                serverUpdatedAt = server.recording.updatedAt,
+                marksHash = if (clean && h != null) h.marks else st.marksHash,
+                chatHash = if (clean && h != null) h.chat else st.chatHash,
+                photosHash = if (clean && h != null) h.photos else st.photosHash,
+                pushedMarksJson = gson.toJson((marksOf(st.pushedMarksJson) + server.marks.filter { it.deletedAt == null } + (after?.marks ?: emptyList())).distinctBy { it.id }),
+                pushedPhotosJson = gson.toJson((photosOf(st.pushedPhotosJson) + server.photos.filter { it.deletedAt == null }).distinctBy { it.id }),
+            ),
+        )
+        return true
     }
 
     private suspend fun retryMissingAudio() {

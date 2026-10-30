@@ -35,7 +35,10 @@ private class FakeServer : WebRemote {
     val calls = mutableListOf<String>()
     var uploadsFail = false
 
-    private fun touch(id: String, op: String = "upsert") { log += ++seq to WebChange("recording", id, op, recs[id]?.meta?.version) }
+    private fun touch(id: String, op: String = "upsert") {
+        recs[id]?.let { it.meta = it.meta.copy(updatedAt = seq + 1) }     // like the real server: ANY change moves updatedAt
+        log += ++seq to WebChange("recording", id, op, recs[id]?.meta?.version)
+    }
 
     override suspend fun changes(since: Long): WebChangesPage {
         calls += "changes"
@@ -99,6 +102,7 @@ private class FakeServer : WebRemote {
         calls += "postChat"
         val r = recs[id] ?: throw ServerException(404, "not_found", "x")
         messages.forEach { r.chat.putIfAbsent(it.id, it) }
+        touch(id)
     }
 
     override suspend fun putPhotos(id: String, photos: List<WebPhoto>) {
@@ -148,6 +152,19 @@ private class FakeServer : WebRemote {
         recs[id] = Rec(WebRecording(id, title, "Musdes", 1_000L, 60, sha, "audio/mp4", "RAW", 0, "CLOUD", "builtin_standard", "Notulensi Standar", null, null, null, null, null, null, null, null, 1, 0, 0, 1, null))
         touch(id)
     }
+    /** The web adds a mark / the AI answers: no version number moves, only updatedAt (exactly what the real server does). */
+    fun webAddMark(id: String, sec: Int, label: String) {
+        val r = recs.getValue(id)
+        val m = WebMark(java.util.UUID.randomUUID().toString(), sec, label, 7)
+        r.marks[m.id] = m
+        touch(id)
+    }
+    fun webAddChat(id: String, text: String) {
+        val r = recs.getValue(id)
+        val c = WebChat(java.util.UUID.randomUUID().toString(), r.chat.size, false, text, 7)
+        r.chat[c.id] = c
+        touch(id)
+    }
     fun count(name: String) = calls.count { it == name }
 }
 
@@ -158,6 +175,7 @@ private class FakeLocal(private val dir: File) : WebLocal {
 
     val recs = linkedMapOf<String, Rec>()
     val cats = mutableListOf<LocalCategory>()
+    var childrenApplied = 0
 
     fun create(id: String, title: String, status: String = "RAW", audio: String? = null, transcript: Boolean = false, notes: Boolean = false, createdAt: Long = 1_000L) {
         val file = audio?.let { File(dir, "aud_$id.m4a").also { f -> f.writeText(it) } }
@@ -195,6 +213,16 @@ private class FakeLocal(private val dir: File) : WebLocal {
         r.marks = byId.values.toList()
         r.chat = (r.chat + server.chat).distinctBy { it.id }
         if (audio != null) r.audio = audio
+    }
+    override suspend fun applyChildren(server: WebAggregate, photoFiles: Map<String, File>): Boolean {
+        val r = recs[server.recording.id] ?: return false
+        if (r.working) return false
+        childrenApplied++
+        val byId = (r.marks + server.marks.filter { it.deletedAt == null }).associateBy { it.id }.toMutableMap()
+        server.marks.filter { it.deletedAt != null }.forEach { byId.remove(it.id) }
+        r.marks = byId.values.toList()
+        r.chat = (r.chat + server.chat).distinctBy { it.id }
+        return true
     }
     override suspend fun categories() = cats.toList()
     override suspend fun addCategory(id: String, label: String, orderIndex: Int) { cats += LocalCategory(id, label, orderIndex) }
@@ -463,5 +491,61 @@ class WebSyncEngineTest {
         sync()
         assertTrue(server.recs.getValue("r1").marks.values.any { it.label == "hanya di hp" })
         assertEquals(1, phone.recs.getValue("r1").marks.count { it.label == "hanya di hp" })
+    }
+
+    // ───────────── marks / photos / chat changed on the web move no version, only updatedAt ─────────────
+
+    @Test
+    fun marksAndChatAddedOnTheWebReachAPhoneThatAlreadySyncedTheRecording() {
+        phone.create("r1", "Rapat 1", status = "DONE", audio = "A", transcript = true, notes = true)
+        sync()
+        val transcriptBefore = phone.recs.getValue("r1").transcript
+        server.webAddMark("r1", 30, "dari web")
+        server.webAddChat("r1", "jawaban AI")
+        val report = sync()
+        assertEquals(0, report.failed)
+        assertTrue(phone.recs.getValue("r1").marks.any { it.label == "dari web" })
+        assertTrue(phone.recs.getValue("r1").chat.any { it.text == "jawaban AI" })
+        assertEquals(transcriptBefore, phone.recs.getValue("r1").transcript)      // only the children are merged
+        assertEquals(0, report.pushed)                                             // and nothing is pushed back
+    }
+
+    @Test
+    fun aChildrenRefreshHappensOnceNotOnEveryRun() {
+        phone.create("r1", "Rapat 1", audio = "A", transcript = true)
+        sync()
+        server.webAddMark("r1", 1, "x")
+        sync()
+        val applied = phone.childrenApplied
+        assertTrue(applied >= 1)
+        sync()
+        sync()
+        assertEquals(applied, phone.childrenApplied)
+    }
+
+    @Test
+    fun aRecordingBeingProcessedOnThePhoneGetsItsWebChildrenLater() {
+        phone.create("r1", "Rapat 1", audio = "A", transcript = true)
+        sync()
+        server.webAddMark("r1", 5, "web")
+        phone.recs.getValue("r1").working = true
+        sync()
+        assertTrue(phone.recs.getValue("r1").marks.none { it.label == "web" })
+        assertTrue("r1" in store.retries)
+        phone.recs.getValue("r1").working = false
+        sync()
+        assertTrue(phone.recs.getValue("r1").marks.any { it.label == "web" })
+        assertTrue("r1" !in store.retries)
+    }
+
+    @Test
+    fun localMarksNotYetSentAreStillPushedWhenWebChildrenArrive() {
+        phone.create("r1", "Rapat 1", audio = "A", transcript = true)
+        sync()
+        phone.mark("r1", 40, "dari HP")
+        server.webAddMark("r1", 50, "dari web")
+        sync()
+        assertEquals(setOf("dari HP", "dari web"), phone.recs.getValue("r1").marks.map { it.label }.toSet())
+        assertEquals(setOf("dari HP", "dari web"), server.recs.getValue("r1").marks.values.map { it.label }.toSet())
     }
 }
