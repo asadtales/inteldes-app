@@ -197,3 +197,18 @@ interface ChatDao {
     @Query("SELECT COUNT(*) FROM chat_messages WHERE recordingId = :recordingId")
     suspend fun count(recordingId: String): Int
 }
+
+@Dao
+interface WebSyncDao {
+    @Query("SELECT * FROM web_sync_state WHERE recordingId = :id")
+    suspend fun get(id: String): WebSyncStateEntity?
+
+    @Query("SELECT * FROM web_sync_state")
+    suspend fun all(): List<WebSyncStateEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(state: WebSyncStateEntity)
+
+    @Query("DELETE FROM web_sync_state WHERE recordingId = :id")
+    suspend fun remove(id: String)
+}

@@ -88,6 +88,8 @@ data class RecordingMarkEntity(
     val timestampSec: Int,
     val label: String,
     val createdAt: Long,
+    /** Id the web server knows this mark by; null = derive it from the content (see WebIds). */
+    val uuid: String? = null,
 )
 
 /**
@@ -146,6 +148,8 @@ data class PhotoEntity(
     val takenAtSec: Int?,
     val caption: String = "",
     val createdAt: Long,
+    /** Id the web server knows this photo by; null = derive it from the content (see WebIds). */
+    val uuid: String? = null,
 )
 
 @Entity(
@@ -174,4 +178,24 @@ data class ChatMessageEntity(
     val isUser: Boolean,
     val text: String,
     val createdAt: Long,
+    /** Id the web server knows this message by; null = derive it from the content (see WebIds). */
+    val uuid: String? = null,
+)
+
+/** What the phone and the web server last agreed on for one recording (see WebSyncEngine). No FK: it must outlive a local delete until the server is told. */
+@Entity(tableName = "web_sync_state")
+data class WebSyncStateEntity(
+    @PrimaryKey val recordingId: String,
+    val serverVersion: Int,
+    val transcriptVersion: Int,
+    val notesVersion: Int,
+    val metaHash: String,
+    val transcriptHash: String,
+    val notesHash: String,
+    val marksHash: String,
+    val chatHash: String,
+    val audioSha: String?,
+    val audioLen: Long,
+    val pushedMarksJson: String,
+    val audioMissing: Boolean,
 )

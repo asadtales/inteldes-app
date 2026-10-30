@@ -11,8 +11,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * Bump [version] on EVERY schema change AND add a real migration: Room refuses to open a database
  * whose layout differs from the declared one but carries the same version number (crash on launch
- * for anyone who had an earlier build installed), and the destructive fallback below would then
- * silently delete every recording instead of migrating it.
+ * for anyone who had an earlier build installed). There is deliberately NO destructive fallback:
+ * a missing migration must fail loudly instead of silently deleting every recording.
  */
 @Database(
     entities = [
@@ -27,9 +27,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         RecordingMarkEntity::class,
         KnowledgeContextEntity::class,
         ContextSourceEntity::class,
+        WebSyncStateEntity::class,
     ],
-    version = 7,
-    exportSchema = false,
+    version = 8,
+    exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class IntelDesDatabase : RoomDatabase() {
@@ -43,6 +44,7 @@ abstract class IntelDesDatabase : RoomDatabase() {
     abstract fun notulensiHistoryDao(): NotulensiHistoryDao
     abstract fun recordingMarkDao(): RecordingMarkDao
     abstract fun contextDao(): ContextDao
+    abstract fun webSyncDao(): WebSyncDao
 
     companion object {
         @Volatile private var instance: IntelDesDatabase? = null
@@ -83,11 +85,35 @@ abstract class IntelDesDatabase : RoomDatabase() {
 
         fun get(context: Context): IntelDesDatabase =
             instance ?: synchronized(this) {
+                backUpBeforeMigration(context.applicationContext)
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     IntelDesDatabase::class.java,
                     "inteldes.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).fallbackToDestructiveMigration().build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build().also { instance = it }
             }
+
+        /**
+         * Before Room migrates an older file, keep a copy next to it (`inteldes_v<old>.bak`, once per old version).
+         * It is only ever read back by a person; nothing deletes it automatically.
+         */
+        private fun backUpBeforeMigration(context: Context) {
+            try {
+                val file = context.getDatabasePath("inteldes.db")
+                if (!file.exists()) return
+                val old = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { it.version }
+                if (old <= 0 || old >= 8) return
+                val bak = java.io.File(file.parentFile, "inteldes_v$old.bak")
+                if (!bak.exists()) {
+                    // The WAL may hold recent writes, so checkpoint through a normal open first.
+                    android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE).use {
+                        it.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { c -> c.moveToFirst() }
+                    }
+                    file.copyTo(bak, overwrite = false)
+                }
+            } catch (_: Exception) {
+                // A failed backup must not stop the app from opening its own database.
+            }
+        }
     }
 }
