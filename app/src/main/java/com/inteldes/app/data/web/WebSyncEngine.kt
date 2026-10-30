@@ -280,7 +280,7 @@ class WebSyncEngine(
                     mine,
                     if ("transcript" in keep) WebTranscriptPart(server.transcript.version, phone.transcript) else server.transcript,
                     if ("notes" in keep) WebNotesPart(server.notes.version, phone.sections) else server.notes,
-                    server.marks, server.photos, server.chat,
+                    keptMarks(server, prior, phone), keptPhotos(server, prior, phone), server.chat,
                 ),
                 server, report, prior, keep, children = true,
             )
@@ -351,9 +351,12 @@ class WebSyncEngine(
         val id = server.recording.id
         val before = local.aggregate(id)
         val clean = before != null && hashesOf(before).let { it.marks == st.marksHash && it.chat == st.chatHash && it.photos == st.photosHash }
-        val photoFiles = downloadPhotos(server)
-        if (!local.applyChildren(server, photoFiles)) { store.addRetry(id); return false }
-        if (server.photos.any { it.deletedAt == null && it.id !in photoFiles && !local.hasPhoto(id, it.id) }) { store.addRetry(id); return false }
+        // A mark/photo the phone deleted since the last sync is still on the server until the next push tombstones it:
+        // don't let the pull bring it back.
+        val incoming = if (before != null) server.copy(marks = keptMarks(server, st, before), photos = keptPhotos(server, st, before)) else server
+        val photoFiles = downloadPhotos(incoming)
+        if (!local.applyChildren(incoming, photoFiles)) { store.addRetry(id); return false }
+        if (incoming.photos.any { it.deletedAt == null && it.id !in photoFiles && !local.hasPhoto(id, it.id) }) { store.addRetry(id); return false }
         val after = local.aggregate(id)
         val h = if (after != null) hashesOf(after) else null
         store.put(
@@ -367,6 +370,21 @@ class WebSyncEngine(
             ),
         )
         return true
+    }
+
+    /** Server marks minus the ones both sides had at the last sync that the phone has since deleted. */
+    private fun keptMarks(server: WebAggregate, prior: WebState?, phone: LocalAggregate): List<WebMark> {
+        if (prior == null) return server.marks
+        val known = marksOf(prior.pushedMarksJson).map { it.id }.toSet()
+        val here = phone.marks.map { it.id }.toSet()
+        return server.marks.filter { it.id !in known || it.id in here || it.deletedAt != null }
+    }
+
+    private fun keptPhotos(server: WebAggregate, prior: WebState?, phone: LocalAggregate): List<WebPhoto> {
+        if (prior == null) return server.photos
+        val known = photosOf(prior.pushedPhotosJson).map { it.id }.toSet()
+        val here = phone.photos.map { it.id }.toSet()
+        return server.photos.filter { it.id !in known || it.id in here || it.deletedAt != null }
     }
 
     private suspend fun retryMissingAudio() {
