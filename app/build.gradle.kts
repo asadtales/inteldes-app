@@ -22,8 +22,8 @@ android {
         applicationId = "com.inteldes.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "2.4.0"
 
         // The IntelDes web/server this app can sign in to (login + QR pairing). HTTPS only.
         buildConfigField("String", "SERVER_URL", "\"https://inteldes.at-in.site\"")

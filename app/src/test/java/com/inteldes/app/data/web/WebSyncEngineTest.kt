@@ -308,6 +308,36 @@ class WebSyncEngineTest {
     }
 
     @Test
+    fun pullOnlyReceivesTheArchiveAndSendsNothingOfThePhone() {
+        phone.create("mine", "Rekaman HP", status = "DONE", audio = "HPAUDIO", transcript = true, notes = true)
+        phone.mark("mine", 5, "penting")
+        phone.cats += LocalCategory("c-hp", "Hanya di HP", 0)
+        server.webCreate("theirs", "Rapat arsip pribadi", withAudio = "SRVAUDIO".toByteArray())
+        server.categories += WebCategory("c-srv", "Dari server", 0, 1, 1, null)
+        server.calls.clear()
+        val report = runBlocking { WebSyncEngine(phone, server, store, pullOnly = true).run() }
+        assertEquals(0, report.failed)
+        assertEquals(0, report.pushed)
+        assertTrue("theirs" in phone.recs)                                              // received, with its audio
+        assertEquals("SRVAUDIO", phone.recs.getValue("theirs").audio!!.readText())
+        assertFalse("mine" in server.recs)                                              // the phone's own recording never went up
+        assertEquals(0, server.count("upload") + server.count("putRecording") + server.count("putMarks") + server.count("putCategory"))
+        assertTrue(phone.cats.any { it.label == "Dari server" })                        // categories still come down
+        assertEquals("Rekaman HP", phone.recs.getValue("mine").input.title)             // and the phone's recording is untouched
+    }
+
+    @Test
+    fun pullOnlyDoesNotSendADeleteMadeOnThePhone() {
+        server.webCreate("theirs", "Rapat arsip pribadi")
+        runBlocking { WebSyncEngine(phone, server, store, pullOnly = true).run() }
+        store.deletes += "theirs"                                                        // the user deleted it on the phone
+        server.calls.clear()
+        runBlocking { WebSyncEngine(phone, server, store, pullOnly = true).run() }
+        assertEquals(0, server.count("delete"))
+        assertFalse(server.recs.getValue("theirs").meta.deletedAt != null)
+    }
+
+    @Test
     fun aSecondRunWithNothingChangedSendsNothing() {
         phone.create("r1", "Rapat 1", audio = "A", transcript = true)
         sync()

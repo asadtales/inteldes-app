@@ -50,6 +50,7 @@ data class WebSyncUi(
     val summary: String = "",
     val otherOrg: String? = null,
     val otherOrgKind: String? = null,
+    val pullOnly: Boolean = false,
 )
 
 class SettingsViewModel(
@@ -74,7 +75,7 @@ class SettingsViewModel(
                 WebSyncUi(
                     enabled = webSync.enabled, progress = webSync.progress, lastRunAt = webSync.lastRunAt,
                     pushed = webSync.lastPushed, pulled = webSync.lastPulled, failed = webSync.lastFailed,
-                    summary = webSync.lastSummary, otherOrg = webSync.needsOrgConfirm, otherOrgKind = webSync.needsOrgKind,
+                    summary = webSync.lastSummary, otherOrg = webSync.needsOrgConfirm, otherOrgKind = webSync.needsOrgKind, pullOnly = webSync.pullOnly,
                 ),
             )
             kotlinx.coroutines.delay(1500)
@@ -89,6 +90,12 @@ class SettingsViewModel(
     fun webSyncNow() = com.inteldes.app.data.work.WebSyncWorker.enqueue(appContext)
 
     /** The user does not want this phone's recordings in the account they just signed in to: sync goes back to off. */
+    /** The user now accepts sending this phone's recordings too (after receiving only). */
+    fun allowPush() {
+        webSync.pullOnly = false
+        com.inteldes.app.data.work.WebSyncWorker.enqueue(appContext)
+    }
+
     fun declineOrgSwitch() {
         webSync.needsOrgConfirm = null
         webSync.needsOrgKind = null
@@ -96,10 +103,10 @@ class SettingsViewModel(
     }
 
     /** The user agreed to send this phone's recordings to the OTHER organisation they are now signed in to. */
-    fun confirmOrgSwitch() {
+    fun confirmOrgSwitch(pullOnly: Boolean = false) {
         viewModelScope.launch {
             runCatching { account.currentOrg() }.onSuccess {
-                webSync.switchOrg(it.id)
+                webSync.switchOrg(it.id, pullOnly)
                 webSync.needsOrgConfirm = null
                 webSync.needsOrgKind = null
                 com.inteldes.app.data.work.WebSyncWorker.enqueue(appContext)

@@ -40,7 +40,7 @@ class LibraryReport(var pushed: Int = 0, var pulled: Int = 0, var failed: Int = 
  * nothing is overwritten and nothing is deleted on either side (edits and deletes are not propagated yet).
  * Built-in templates are never touched.
  */
-class WebLibrarySync(private val local: WebLibraryLocal, private val remote: WebLibraryRemote) {
+class WebLibrarySync(private val local: WebLibraryLocal, private val remote: WebLibraryRemote, private val pullOnly: Boolean = false) {
     suspend fun run(): LibraryReport {
         val report = LibraryReport()
         guarded(report, "template") { templates(report) }
@@ -57,7 +57,7 @@ class WebLibrarySync(private val local: WebLibraryLocal, private val remote: Web
             local.addTemplate(LocalTemplate(t.id, t.name, t.description, t.sections))
             report.pulled++
         }
-        for (t in mine.filter { it.id !in serverIds }) {
+        for (t in if (pullOnly) emptyList() else mine.filter { it.id !in serverIds }) {
             if (t.sections.isEmpty() || t.sections.size > 30 || t.name.isBlank()) continue          // the server would refuse it
             try {
                 remote.createTemplate(t.id, t.name.take(200), t.description.take(1000), t.sections.map { WebTemplateSection(it.title.take(200).ifBlank { "Bagian" }, it.type, it.instruction.take(2000)) })
@@ -77,7 +77,7 @@ class WebLibrarySync(private val local: WebLibraryLocal, private val remote: Web
             local.addContext(LocalContext(c.id, c.name, c.text, c.createdAt, c.updatedAt, c.sources.filter { it.recordingId != null }))
             report.pulled++
         }
-        for (c in mine.filter { it.id !in serverIds }) {
+        for (c in if (pullOnly) emptyList() else mine.filter { it.id !in serverIds }) {
             if (c.name.isBlank() || c.text.length > 40_000) continue                                   // too long for the server: stays local
             try {
                 try {

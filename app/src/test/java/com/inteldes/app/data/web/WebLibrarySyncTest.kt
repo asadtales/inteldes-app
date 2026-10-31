@@ -59,6 +59,17 @@ class WebLibrarySyncTest {
     }
 
     @Test
+    fun pullOnlyCopiesDownButSendsNothing() {
+        local.templates += LocalTemplate("custom_a", "Punya HP", "", listOf(section))
+        remote.templates += WebTemplate("custom_b", "Punya web", "", false, 1, listOf(section))
+        local.contexts += LocalContext("c1", "Konteks HP", "isi", 1, 1, emptyList())
+        val report = runBlocking { WebLibrarySync(local, remote, pullOnly = true).run() }
+        assertEquals(0, report.pushed)
+        assertTrue(remote.created.isEmpty())
+        assertTrue(local.templates.any { it.id == "custom_b" })
+    }
+
+    @Test
     fun existingOnesAreNeverOverwrittenOrDeleted() {
         local.templates += LocalTemplate("custom_a", "Nama HP", "", listOf(section))
         remote.templates += WebTemplate("custom_a", "Nama web", "", false, 3, listOf(section))

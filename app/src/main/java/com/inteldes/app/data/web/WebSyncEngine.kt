@@ -134,21 +134,25 @@ data class WebSyncReport(
  *  - A recording still being processed (WORKING) is neither pushed nor overwritten.
  *  - The first time a recording meets the server, the richer side wins (notulensi > transcript > bare), phone on a tie.
  *  - A phone-side delete (the user deleted it here) IS sent to the server.
+ *
+ * [pullOnly]: the phone only RECEIVES (for an account whose archive must not get this phone's recordings, e.g. a
+ * personal archive on a phone that holds a team's recordings). Nothing is sent: no recordings, no deletes, no categories.
  */
 class WebSyncEngine(
     private val local: WebLocal,
     private val remote: WebRemote,
     private val store: WebStateStore,
     private val gson: Gson = Gson(),
+    private val pullOnly: Boolean = false,
 ) {
     suspend fun run(progress: (String) -> Unit = {}): WebSyncReport {
         val report = WebSyncReport()
         progress("Kategori…")
         guarded(report, "kategori") { syncCategories() }
-        guarded(report, "hapus") { flushDeletes(report) }
+        if (!pullOnly) guarded(report, "hapus") { flushDeletes(report) }
         progress("Mengambil perubahan dari server…")
         pull(report)
-        val ids = local.recordingIds()
+        val ids = if (pullOnly) emptyList() else local.recordingIds()
         ids.forEachIndexed { i, id ->
             progress("Mengirim rekaman ${i + 1}/${ids.size}")
             guarded(report, id) { pushOne(id, report) }
@@ -165,7 +169,7 @@ class WebSyncEngine(
         for (c in server) {
             if (mine.none { it.label.equals(c.label, ignoreCase = true) }) local.addCategory(c.id, c.label, c.orderIndex)
         }
-        for (c in mine) {
+        for (c in if (pullOnly) emptyList() else mine) {
             if (server.none { it.label.equals(c.label, ignoreCase = true) }) {
                 try {
                     remote.putCategory(c.id, c.label, c.orderIndex, 0)

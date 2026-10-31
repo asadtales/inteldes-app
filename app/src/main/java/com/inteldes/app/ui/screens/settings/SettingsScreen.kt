@@ -27,6 +27,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,6 +95,13 @@ fun SettingsScreen(
         Unit
     }
 
+    // One section open at a time keeps the screen short; the open one survives rotation.
+    var open by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(webState.otherOrg) { if (webState.otherOrg != null) open = "akun" }
+    fun toggle(key: String) { open = if (open == key) "" else key }
+    val s = state.settings
+    val onOff = { v: Boolean -> if (v) "aktif" else "mati" }
+
     LazyColumn(modifier = Modifier.fillMaxSize().background(IdColor.Bg)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 10.dp, top = 6.dp, bottom = 10.dp)) {
@@ -103,45 +112,129 @@ fun SettingsScreen(
         }
 
         item {
-            Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
-                KickerLabel("Agent AI", modifier = Modifier.padding(bottom = 10.dp))
+            val me = serverSession
+            SettingsSection(
+                "Akun & sinkron web",
+                when {
+                    me == null -> "Belum masuk · mode lokal"
+                    webState.otherOrg != null -> "Perlu konfirmasi: akun berbeda dari yang terakhir dipakai"
+                    else -> "${me.name} · ${if (me.isPersonal) "Akun pribadi" else me.orgName} · " +
+                        if (!webState.enabled) "sinkron web mati" else if (webState.pullOnly) "hanya menerima dari web" else "sinkron web aktif"
+                },
+                open == "akun", alert = webState.otherOrg != null, onToggle = { toggle("akun") },
+            ) {
+                AccountSection(
+                    serverSession, webState, onLogin = onLogin, onApprove = onApproveWebLogin, onLogout = vm::logoutServer,
+                    onWebSync = vm::setWebSync, onWebSyncNow = vm::webSyncNow, onConfirmOrg = vm::confirmOrgSwitch,
+                    onDeclineOrg = vm::declineOrgSwitch, onAllowPush = vm::allowPush,
+                )
+            }
+        }
 
-                ProviderRow("Otomatis (disarankan)", "IntelDes memilih agent sesuai panjang rapat dan sisa kuota.", state.settings.provider == AiProvider.AUTO) { vm.setProvider(AiProvider.AUTO) }
-                Spacer(Modifier.height(8.dp))
-                ProviderRow("Gemini 2.5 Pro", "Konteks panjang — bagus untuk rapat di atas 90 menit.", state.settings.provider == AiProvider.GEMINI) { vm.setProvider(AiProvider.GEMINI) }
-                Spacer(Modifier.height(8.dp))
-                ProviderRow("Claude Sonnet", "Ringkasan lebih rapi dan konsisten untuk berita acara.", state.settings.provider == AiProvider.CLAUDE) { vm.setProvider(AiProvider.CLAUDE) }
-
-                Spacer(Modifier.height(8.dp))
-                SettingRow(
-                    "Mode hemat token",
-                    "Pakai model AI versi ringan (Gemini Flash / Claude Haiku) — lebih murah, ringkasan sedikit kurang detail",
-                    if (state.settings.economyMode) "Aktif" else "Nonaktif",
-                ) { vm.setEconomyMode(!state.settings.economyMode) }
+        item {
+            SettingsSection(
+                "Perekaman",
+                "Proses otomatis ${onOff(s.autoProcessAfterRecording)} · Tombol volume ${onOff(s.markWithVolumeButton)} · Audio asli ${if (s.keepOriginalAudio) "disimpan" else "dihapus"}",
+                open == "rekam", onToggle = { toggle("rekam") },
+            ) {
                 SettingRow(
                     "Proses otomatis setelah rekam",
                     "Nonaktifkan untuk hanya menyimpan rekaman dulu tanpa langsung transkrip — berguna saat belum ada internet atau ingin hemat kuota API. Proses bisa dimulai manual kapan saja dari halaman rekaman.",
-                    if (state.settings.autoProcessAfterRecording) "Aktif" else "Nonaktif",
-                ) { vm.setAutoProcessAfterRecording(!state.settings.autoProcessAfterRecording) }
+                    if (s.autoProcessAfterRecording) "Aktif" else "Nonaktif",
+                ) { vm.setAutoProcessAfterRecording(!s.autoProcessAfterRecording) }
                 SettingRow(
                     "Tandai dengan tombol volume",
                     "Saat layar rekam terbuka, tekan tombol volume juga menandai momen saat itu (seperti tombol rana kamera) — volume tetap berubah seperti biasa. Tidak berfungsi saat layar mati; gunakan tombol TANDAI di notifikasi untuk itu.",
-                    if (state.settings.markWithVolumeButton) "Aktif" else "Nonaktif",
-                ) { vm.setMarkWithVolumeButton(!state.settings.markWithVolumeButton) }
+                    if (s.markWithVolumeButton) "Aktif" else "Nonaktif",
+                ) { vm.setMarkWithVolumeButton(!s.markWithVolumeButton) }
+                SettingRow(
+                    "Simpan audio asli",
+                    "Nonaktifkan untuk hapus audio otomatis setelah diproses",
+                    if (s.keepOriginalAudio) "Aktif" else "Nonaktif",
+                ) { vm.setKeepOriginalAudio(!s.keepOriginalAudio) }
+            }
+        }
+
+        item {
+            SettingsSection(
+                "Transkripsi",
+                (if (s.defaultEngine == WhisperEngine.ON_DEVICE) "On-device" else "Awan") + " · " +
+                    (if (s.speakerRoster.isEmpty()) "daftar pembicara kosong" else "${s.speakerRoster.size} nama pembicara"),
+                open == "transkrip", onToggle = { toggle("transkrip") },
+            ) {
+                Text("Mesin bawaan", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                Spacer(Modifier.height(8.dp))
+                Row {
+                    EngineChoice("On-device", "Tanpa internet, satu pembicara", enabled = true, selected = s.defaultEngine == WhisperEngine.ON_DEVICE, modifier = Modifier.weight(1f)) {
+                        vm.setDefaultEngine(WhisperEngine.ON_DEVICE)
+                    }
+                    Spacer(Modifier.width(1.dp))
+                    EngineChoice("Awan", "Whisper large + label pembicara", enabled = true, selected = s.defaultEngine == WhisperEngine.CLOUD, modifier = Modifier.weight(1f)) {
+                        vm.setDefaultEngine(WhisperEngine.CLOUD)
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "On-device mengunduh model (≈140MB) sekali di awal, lalu bekerja tanpa internet. Belum bisa memisahkan label pembicara. Pilihan ini jadi bawaan; tetap bisa diganti di layar rekam.",
+                    color = IdColor.Neutral600, fontSize = 10.5.sp, lineHeight = 15.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
+                SettingRow(
+                    "Label pembicara",
+                    "Daftar nama perangkat desa untuk dipilih cepat saat labeli pembicara",
+                    if (s.speakerRoster.isEmpty()) "Atur daftar" else "${s.speakerRoster.size} nama",
+                ) { vm.openRosterDialog() }
+            }
+        }
+
+        item {
+            SettingsSection(
+                "Notulensi & AI",
+                "${s.provider.label.substringBefore(" (")} · ${s.density.label} · ${s.outputLanguage.label} · ${state.defaultTemplateName}",
+                open == "ai", onToggle = { toggle("ai") },
+            ) {
+                Text("Agent AI", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                Spacer(Modifier.height(8.dp))
+                ProviderRow("Otomatis (disarankan)", "IntelDes memilih agent sesuai panjang rapat dan sisa kuota.", s.provider == AiProvider.AUTO) { vm.setProvider(AiProvider.AUTO) }
+                Spacer(Modifier.height(8.dp))
+                ProviderRow("Gemini 2.5 Pro", "Konteks panjang — bagus untuk rapat di atas 90 menit.", s.provider == AiProvider.GEMINI) { vm.setProvider(AiProvider.GEMINI) }
+                Spacer(Modifier.height(8.dp))
+                ProviderRow("Claude Sonnet", "Ringkasan lebih rapi dan konsisten untuk berita acara.", s.provider == AiProvider.CLAUDE) { vm.setProvider(AiProvider.CLAUDE) }
+                SettingRow(
+                    "Mode hemat token",
+                    "Pakai model AI versi ringan (Gemini Flash / Claude Haiku) — lebih murah, ringkasan sedikit kurang detail",
+                    if (s.economyMode) "Aktif" else "Nonaktif",
+                ) { vm.setEconomyMode(!s.economyMode) }
+
+                Spacer(Modifier.height(14.dp))
+                Text("Panjang notulensi", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                Text("Gaya ringkas, sedang, atau detail saat AI menyusun notulensi", color = IdColor.Neutral700, fontSize = 11.5.sp, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
+                Row {
+                    NotulensiDensity.entries.forEachIndexed { i, d ->
+                        if (i > 0) Spacer(Modifier.width(1.dp))
+                        EngineChoice(d.label, d.desc, enabled = true, selected = s.density == d, modifier = Modifier.weight(1f)) { vm.setDensity(d) }
+                    }
+                }
+                Spacer(Modifier.height(13.dp))
+                HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
+                SettingRow(
+                    "Template bawaan",
+                    "Bentuk dokumen hasil AI: notulensi, berita acara, atau template buatan sendiri",
+                    state.defaultTemplateName + "  ›",
+                ) { onOpenTemplates() }
+                SettingRow("Bahasa keluaran", "Bahasa notulensi dan jawaban Tanya AI", s.outputLanguage.label) {
+                    vm.setOutputLanguage(if (s.outputLanguage == OutputLanguage.INDONESIA) OutputLanguage.ENGLISH else OutputLanguage.INDONESIA)
+                }
 
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp)
-                        .clickable { vm.toggleAdvanced() }
-                        .padding(vertical = 11.dp),
+                    modifier = Modifier.fillMaxWidth().clickable { vm.toggleAdvanced() }.padding(vertical = 11.dp),
                 ) {
-                    Text("OPSI LANJUTAN", fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.8.sp)
+                    Text("KUNCI API (LANJUTAN)", fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.8.sp)
                     Spacer(Modifier.weight(1f))
                     Text(if (state.advancedOpen) "–" else "+", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
                 HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
-
                 if (state.advancedOpen) {
                     Column(modifier = Modifier.background(IdColor.Neutral100).padding(14.dp)) {
                         KeySlot("API key Gemini", state.keys.geminiEmbedded, state.keys.geminiKey, vm::saveGeminiKey)
@@ -152,39 +245,19 @@ fun SettingsScreen(
                         Spacer(Modifier.height(10.dp))
                         Text(
                             "Kunci yang tertanam di aplikasi dipakai otomatis. Kunci yang diketik di sini disimpan terenkripsi di perangkat dan hanya dipakai bila aplikasi tidak membawa kunci itu.",
-                            color = IdColor.Neutral700,
-                            fontSize = 11.5.sp,
-                            lineHeight = 16.sp,
+                            color = IdColor.Neutral700, fontSize = 11.5.sp, lineHeight = 16.sp,
                         )
                     }
                 }
+            }
+        }
 
-                Spacer(Modifier.height(20.dp))
-                HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
-                Spacer(Modifier.height(16.dp))
-
-                KickerLabel("Template dokumen", modifier = Modifier.padding(bottom = 10.dp))
-                SettingRow(
-                    "Template bawaan",
-                    "Bentuk dokumen hasil AI: notulensi, berita acara, atau template buatan sendiri",
-                    state.defaultTemplateName + "  ›",
-                ) { onOpenTemplates() }
-
-                Spacer(Modifier.height(20.dp))
-                HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
-                Spacer(Modifier.height(16.dp))
-
-                KickerLabel("Akun & web", modifier = Modifier.padding(bottom = 10.dp))
-                AccountSection(
-                    serverSession, webState, onLogin = onLogin, onApprove = onApproveWebLogin, onLogout = vm::logoutServer,
-                    onWebSync = vm::setWebSync, onWebSyncNow = vm::webSyncNow, onConfirmOrg = vm::confirmOrgSwitch, onDeclineOrg = vm::declineOrgSwitch,
-                )
-
-                Spacer(Modifier.height(20.dp))
-                HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
-                Spacer(Modifier.height(16.dp))
-
-                KickerLabel("Sinkronisasi Google Drive", modifier = Modifier.padding(bottom = 10.dp))
+        item {
+            SettingsSection(
+                "Google Drive",
+                if (!sync.connected) "Belum terhubung" else "${sync.account ?: "Akun Google"} · sinkron otomatis ${onOff(sync.autoSync)}",
+                open == "drive", onToggle = { toggle("drive") },
+            ) {
                 DriveSection(
                     sync = sync,
                     onConnect = connectDrive,
@@ -193,76 +266,16 @@ fun SettingsScreen(
                     onToggleAuto = { vm.setAutoSync(!sync.autoSync) },
                     onToggleWifi = { vm.setWifiOnly(!sync.wifiOnly) },
                 )
-
-                Spacer(Modifier.height(20.dp))
-                HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
-                Spacer(Modifier.height(16.dp))
-
-                KickerLabel("Transkripsi Whisper", modifier = Modifier.padding(bottom = 10.dp))
-                Row {
-                    EngineChoice("On-device", "Tanpa internet, satu pembicara", enabled = true, selected = state.settings.defaultEngine == WhisperEngine.ON_DEVICE, modifier = Modifier.weight(1f)) {
-                        vm.setDefaultEngine(WhisperEngine.ON_DEVICE)
-                    }
-                    Spacer(Modifier.width(1.dp))
-                    EngineChoice("Awan", "Whisper large + label pembicara", enabled = true, selected = state.settings.defaultEngine == WhisperEngine.CLOUD, modifier = Modifier.weight(1f)) {
-                        vm.setDefaultEngine(WhisperEngine.CLOUD)
-                    }
-                }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "On-device mengunduh model (≈140MB) sekali di awal, lalu bekerja tanpa internet. Belum bisa memisahkan label pembicara.",
-                    color = IdColor.Neutral600,
-                    fontSize = 10.5.sp,
-                )
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "Pilihan ini jadi bawaan; tetap bisa diganti di layar rekam.",
-                    color = IdColor.Neutral600,
-                    fontSize = 11.5.sp,
-                )
-
-                Spacer(Modifier.height(18.dp))
-
-                Text("Panjang notulensi", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    "Gaya ringkas, sedang, atau detail saat AI menyusun notulensi",
-                    color = IdColor.Neutral700,
-                    fontSize = 11.5.sp,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                Row {
-                    NotulensiDensity.entries.forEachIndexed { i, d ->
-                        if (i > 0) Spacer(Modifier.width(1.dp))
-                        EngineChoice(d.label, d.desc, enabled = true, selected = state.settings.density == d, modifier = Modifier.weight(1f)) {
-                            vm.setDensity(d)
-                        }
-                    }
-                }
-                Spacer(Modifier.height(13.dp))
-                HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
-                SettingRow(
-                    "Simpan audio asli",
-                    "Nonaktifkan untuk hapus audio otomatis setelah diproses",
-                    if (state.settings.keepOriginalAudio) "Aktif" else "Nonaktif",
-                ) { vm.setKeepOriginalAudio(!state.settings.keepOriginalAudio) }
-                SettingRow(
-                    "Label pembicara",
-                    "Daftar nama perangkat desa untuk dipilih cepat saat labeli pembicara",
-                    if (state.settings.speakerRoster.isEmpty()) "Atur daftar" else "${state.settings.speakerRoster.size} nama",
-                ) { vm.openRosterDialog() }
-                SettingRow("Ekspor otomatis", "Kirim notulensi ke grup WhatsApp desa", "Nonaktif", onClick = null)
-                SettingRow(
-                    "Bahasa keluaran",
-                    "Bahasa notulensi dan jawaban Tanya AI",
-                    state.settings.outputLanguage.label,
-                ) {
-                    val next = if (state.settings.outputLanguage == OutputLanguage.INDONESIA) OutputLanguage.ENGLISH else OutputLanguage.INDONESIA
-                    vm.setOutputLanguage(next)
-                }
-
-                Spacer(Modifier.height(24.dp))
             }
+        }
+
+        item {
+            SettingsSection(
+                "Tentang",
+                "Versi ${com.inteldes.app.BuildConfig.VERSION_NAME} · Asterix Inovasi Teknologi",
+                open == "tentang", onToggle = { toggle("tentang") },
+            ) { AboutSection() }
+            Spacer(Modifier.height(24.dp))
         }
     }
 
@@ -544,8 +557,9 @@ private fun AccountSection(
     onLogout: () -> Unit,
     onWebSync: (Boolean) -> Unit,
     onWebSyncNow: () -> Unit,
-    onConfirmOrg: () -> Unit,
+    onConfirmOrg: (Boolean) -> Unit,
     onDeclineOrg: () -> Unit,
+    onAllowPush: () -> Unit,
 ) {
     var confirmLogout by remember { mutableStateOf(false) }
     var confirmEnable by remember { mutableStateOf(false) }
@@ -570,7 +584,7 @@ private fun AccountSection(
             Spacer(Modifier.height(10.dp))
             DriveButton("MASUK WEB DENGAN QR", filled = true, onClick = onApprove)
             Spacer(Modifier.height(14.dp))
-            WebSyncCard(web, canWrite = session.role != "pembaca", onEnable = { confirmEnable = true }, onDisable = { onWebSync(false) }, onNow = onWebSyncNow, onConfirmOrg = onConfirmOrg, onDeclineOrg = onDeclineOrg)
+            WebSyncCard(web, canWrite = session.role != "pembaca", onEnable = { confirmEnable = true }, onDisable = { onWebSync(false) }, onNow = onWebSyncNow, onConfirmOrg = onConfirmOrg, onDeclineOrg = onDeclineOrg, onAllowPush = onAllowPush)
             Spacer(Modifier.height(14.dp))
             DriveButton("KELUAR DARI SERVER", filled = false, onClick = { confirmLogout = true })
         }
@@ -611,9 +625,11 @@ private fun WebSyncCard(
     onEnable: () -> Unit,
     onDisable: () -> Unit,
     onNow: () -> Unit,
-    onConfirmOrg: () -> Unit,
+    onConfirmOrg: (Boolean) -> Unit,
     onDeclineOrg: () -> Unit,
+    onAllowPush: () -> Unit,
 ) {
+    var confirmPush by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().border(1.dp, IdColor.Neutral300).padding(12.dp)) {
         Text("SINKRON KE WEB", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
         Spacer(Modifier.height(4.dp))
@@ -622,7 +638,7 @@ private fun WebSyncCard(
             return@Column
         }
         Text(
-            if (web.enabled) "Aktif" else "Mati - rekaman hanya ada di HP ini",
+            if (!web.enabled) "Mati - rekaman hanya ada di HP ini" else if (web.pullOnly) "Aktif · hanya menerima dari server" else "Aktif",
             fontWeight = FontWeight.Bold, fontSize = 14.sp,
         )
         if (web.progress != null) {
@@ -644,25 +660,127 @@ private fun WebSyncCard(
             Text(
                 if (personal) {
                     "Akun ini adalah akun pribadi \"${web.otherOrg}\" (arsip terpisah milik satu pengguna), berbeda dari yang terakhir dipakai HP ini. " +
-                        "Rekaman HP belum dikirim. Kirim semua rekaman HP ini ke arsip pribadi tersebut? Rekaman organisasi lain di HP ikut masuk bila salah."
+                        "Rekaman HP belum dikirim."
                 } else {
-                    "Akun ini milik organisasi \"${web.otherOrg}\", berbeda dari yang terakhir dipakai HP ini. " +
-                        "Rekaman HP belum dikirim. Kirim ke organisasi ini? Data dua desa bisa tercampur bila salah."
+                    "Akun ini milik organisasi \"${web.otherOrg}\", berbeda dari yang terakhir dipakai HP ini. Rekaman HP belum dikirim."
                 },
                 color = IdColor.Accent, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold,
             )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Pilih \"Hanya ambil\" bila rekaman di HP ini milik arsip lain: arsip ini hanya MENERIMA dari server, tidak ada rekaman HP yang dikirim. " +
+                    "Pilih \"Kirim juga\" hanya bila rekaman HP memang milik arsip ini; kalau salah, data dua arsip tercampur.",
+                color = IdColor.Neutral700, fontSize = 11.5.sp, lineHeight = 16.sp,
+            )
+            Spacer(Modifier.height(8.dp))
+            DriveButton("HANYA AMBIL DARI SERVER (DISARANKAN)", filled = true, onClick = { onConfirmOrg(true) })
             Spacer(Modifier.height(6.dp))
-            DriveButton(if (personal) "YA, KIRIM KE AKUN PRIBADI INI" else "YA, KIRIM KE ORGANISASI INI", filled = true, onClick = onConfirmOrg)
+            DriveButton(if (personal) "KIRIM JUGA KE AKUN PRIBADI INI" else "KIRIM JUGA KE ORGANISASI INI", filled = false, onClick = { onConfirmOrg(false) })
             Spacer(Modifier.height(6.dp))
-            DriveButton("TIDAK, JANGAN KIRIM (MATIKAN SINKRON)", filled = false, onClick = onDeclineOrg)
+            DriveButton("TIDAK, MATIKAN SINKRON", filled = false, onClick = onDeclineOrg)
         }
         Spacer(Modifier.height(10.dp))
         if (web.enabled) {
+            if (web.pullOnly) {
+                Text(
+                    "Rekaman di HP ini tidak dikirim ke server; yang diambil hanya isi arsip ini.",
+                    color = IdColor.Neutral700, fontSize = 11.5.sp, lineHeight = 16.sp,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
             DriveButton("SINKRONKAN SEKARANG", filled = true, onClick = onNow)
             Spacer(Modifier.height(8.dp))
+            if (web.pullOnly) {
+                DriveButton("KIRIM REKAMAN HP JUGA…", filled = false, onClick = { confirmPush = true })
+                Spacer(Modifier.height(8.dp))
+            }
             DriveButton("MATIKAN SINKRON WEB", filled = false, onClick = onDisable)
         } else {
             DriveButton("AKTIFKAN SINKRON KE WEB", filled = true, onClick = onEnable)
         }
     }
+    if (confirmPush) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmPush = false },
+            title = { Text("Kirim rekaman HP juga?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Semua rekaman di HP ini akan dikirim ke arsip yang sedang dipakai. Pastikan rekaman itu memang milik arsip tersebut. " +
+                        "Yang sudah terkirim tidak bisa ditarik dari server lewat aplikasi.",
+                    fontSize = 13.sp, color = IdColor.Neutral700, lineHeight = 18.sp,
+                )
+            },
+            confirmButton = { Text("YA, KIRIM", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { confirmPush = false; onAllowPush() }.padding(10.dp)) },
+            dismissButton = { Text("Batal", color = IdColor.Neutral700, modifier = Modifier.clickable { confirmPush = false }.padding(10.dp)) },
+        )
+    }
+}
+
+/** A collapsible group: the header always shows a one-line summary, the content only when [open]. */
+@Composable
+private fun SettingsSection(
+    title: String,
+    summary: String,
+    open: Boolean,
+    alert: Boolean = false,
+    onToggle: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().background(if (open) IdColor.Neutral100 else IdColor.Bg).clickable(onClick = onToggle).padding(horizontal = 18.dp, vertical = 15.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Spacer(Modifier.height(2.dp))
+                Text(summary, color = if (alert) IdColor.Accent else IdColor.Neutral700, fontSize = 11.5.sp, lineHeight = 15.sp, maxLines = 2)
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(if (open) "–" else "+", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+        }
+        if (open) Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(top = 14.dp, bottom = 18.dp)) { content() }
+        HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
+    }
+}
+
+@Composable
+private fun AboutSection() {
+    Column {
+        Text("IntelDes", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+        Text("Perekam rapat dan penyusun notulensi untuk pemerintahan desa.", color = IdColor.Neutral700, fontSize = 12.sp, lineHeight = 17.sp)
+        Spacer(Modifier.height(12.dp))
+        AboutLine("Versi", "${com.inteldes.app.BuildConfig.VERSION_NAME} (build ${com.inteldes.app.BuildConfig.VERSION_CODE})")
+        AboutLine("Pengembang", "Asterix Inovasi Teknologi")
+        AboutLine("Server web", com.inteldes.app.BuildConfig.SERVER_URL.removePrefix("https://"))
+        Spacer(Modifier.height(14.dp))
+        Text("DISCLAIMER DATA", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
+        Spacer(Modifier.height(6.dp))
+        listOf(
+            "Rekaman, transkrip, notulensi, foto, dan penanda disimpan di HP ini. Data hanya keluar dari HP bila Anda menjalankan fitur yang memerlukannya, seperti di bawah.",
+            "Transkripsi awan mengirim audio rekaman ke penyedia layanan transkripsi (Deepgram). Transkripsi on-device tidak mengirim audio ke mana pun.",
+            "Penyusunan notulensi dan Tanya AI mengirim teks transkrip ke penyedia AI yang dipilih (Google Gemini atau Anthropic Claude).",
+            "Sinkron ke web mengirim rekaman, notulensi, foto, dan penanda ke server IntelDes untuk akun yang sedang masuk. Sinkron Google Drive menyimpan salinan di Drive milik akun Google Anda.",
+            "Menghapus rekaman di HP ikut menghapus salinannya di server web dan Drive bila sinkron itu aktif. Rekaman yang dihapus di web tidak dihapus dari HP.",
+            "Kunci API yang Anda ketik disimpan terenkripsi di perangkat. Sesi login disimpan terenkripsi dan tidak ikut cadangan Android.",
+            "Hasil transkripsi dan notulensi dibuat otomatis oleh AI dan bisa keliru, terutama nama, angka, dan istilah setempat. Periksa dan koreksi sebelum dipakai sebagai dokumen resmi.",
+            "Anda bertanggung jawab atas izin merekam dan kerahasiaan isi rapat, serta atas siapa yang diberi akses ke tautan bagikan atau akun web.",
+        ).forEach { line ->
+            Row(Modifier.padding(bottom = 7.dp)) {
+                Text("•", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(14.dp))
+                Text(line, color = IdColor.Neutral700, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("© Asterix Inovasi Teknologi", color = IdColor.Neutral600, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun AboutLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+        Text(label, color = IdColor.Neutral600, fontSize = 12.sp, modifier = Modifier.width(96.dp))
+        Text(value, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+    }
+    HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
 }

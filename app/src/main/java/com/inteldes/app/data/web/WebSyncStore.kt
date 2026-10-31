@@ -45,6 +45,11 @@ class WebSyncStore(context: Context, db: IntelDesDatabase) : WebStateStore {
         get() = prefs.getString(K_CONFIRM, null)
         set(v) = prefs.edit().putString(K_CONFIRM, v).apply()
 
+    /** The phone only receives from the server and never sends (chosen when it holds recordings of another archive). */
+    var pullOnly: Boolean
+        get() = prefs.getBoolean(K_PULL_ONLY, false)
+        set(v) = prefs.edit().putBoolean(K_PULL_ONLY, v).apply()
+
     /** `team` or `personal`: what kind of account is waiting in [needsOrgConfirm]. */
     var needsOrgKind: String?
         get() = prefs.getString(K_CONFIRM_KIND, null)
@@ -63,9 +68,9 @@ class WebSyncStore(context: Context, db: IntelDesDatabase) : WebStateStore {
      * The user confirmed syncing with a different organisation: what was agreed with the old one means nothing
      * now, so the next run treats every recording as new to the server. Local recordings are not touched.
      */
-    suspend fun switchOrg(newOrgId: String) {
+    suspend fun switchOrg(newOrgId: String, pullOnly: Boolean = false) {
         dao.clear()
-        prefs.edit().remove(K_CURSOR).remove(K_RETRY).remove(K_DELETES).putString(K_ORG, newOrgId).remove(K_CONFIRM).remove(K_CONFIRM_KIND).commit()
+        prefs.edit().remove(K_CURSOR).remove(K_RETRY).remove(K_DELETES).putString(K_ORG, newOrgId).putBoolean(K_PULL_ONLY, pullOnly).remove(K_CONFIRM).remove(K_CONFIRM_KIND).commit()
     }
 
     /** Forget the cursor and retry list (e.g. after logging into another account) so the next run starts from the top. */
@@ -112,6 +117,7 @@ class WebSyncStore(context: Context, db: IntelDesDatabase) : WebStateStore {
         private const val K_FAILED = "last_failed"
         private const val K_CONFIRM = "confirm_org"
         private const val K_CONFIRM_KIND = "confirm_org_kind"
+        private const val K_PULL_ONLY = "pull_only"
         private const val K_PROGRESS = "progress"
         private const val K_CURSOR = "cursor"
         private const val K_DELETES = "pending_deletes"

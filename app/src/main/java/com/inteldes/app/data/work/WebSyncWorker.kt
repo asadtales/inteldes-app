@@ -60,9 +60,9 @@ class WebSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                 store.needsOrgConfirm = null
                 store.needsOrgKind = null
                 val api = WebApi(account.api)
-                val engine = WebSyncEngine(RoomWebLocal(applicationContext, app.database), api, store)
+                val engine = WebSyncEngine(RoomWebLocal(applicationContext, app.database), api, store, pullOnly = store.pullOnly)
                 val report = engine.run { store.progress = it }
-                val lib = com.inteldes.app.data.web.WebLibrarySync(com.inteldes.app.data.web.RoomWebLibrary(app.database), api).run()
+                val lib = com.inteldes.app.data.web.WebLibrarySync(com.inteldes.app.data.web.RoomWebLibrary(app.database), api, pullOnly = store.pullOnly).run()
                 report.pushed += lib.pushed
                 report.pulled += lib.pulled
                 report.failed += lib.failed
