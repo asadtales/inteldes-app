@@ -49,6 +49,7 @@ data class WebSyncUi(
     val failed: Int = 0,
     val summary: String = "",
     val otherOrg: String? = null,
+    val otherOrgKind: String? = null,
 )
 
 class SettingsViewModel(
@@ -73,7 +74,7 @@ class SettingsViewModel(
                 WebSyncUi(
                     enabled = webSync.enabled, progress = webSync.progress, lastRunAt = webSync.lastRunAt,
                     pushed = webSync.lastPushed, pulled = webSync.lastPulled, failed = webSync.lastFailed,
-                    summary = webSync.lastSummary, otherOrg = webSync.needsOrgConfirm,
+                    summary = webSync.lastSummary, otherOrg = webSync.needsOrgConfirm, otherOrgKind = webSync.needsOrgKind,
                 ),
             )
             kotlinx.coroutines.delay(1500)
@@ -87,12 +88,20 @@ class SettingsViewModel(
 
     fun webSyncNow() = com.inteldes.app.data.work.WebSyncWorker.enqueue(appContext)
 
+    /** The user does not want this phone's recordings in the account they just signed in to: sync goes back to off. */
+    fun declineOrgSwitch() {
+        webSync.needsOrgConfirm = null
+        webSync.needsOrgKind = null
+        webSync.enabled = false
+    }
+
     /** The user agreed to send this phone's recordings to the OTHER organisation they are now signed in to. */
     fun confirmOrgSwitch() {
         viewModelScope.launch {
             runCatching { account.currentOrg() }.onSuccess {
                 webSync.switchOrg(it.id)
                 webSync.needsOrgConfirm = null
+                webSync.needsOrgKind = null
                 com.inteldes.app.data.work.WebSyncWorker.enqueue(appContext)
             }
         }

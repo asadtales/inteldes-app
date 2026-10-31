@@ -315,7 +315,8 @@ class WebSyncEngine(
                 marksHash = if (children) prior?.marksHash.orEmpty() else h?.marks.orEmpty(),
                 chatHash = if (children) prior?.chatHash.orEmpty() else h?.chat.orEmpty(),
                 photosHash = if (children) prior?.photosHash.orEmpty() else h?.photos.orEmpty(),
-                audioSha = sha, audioLen = file?.length() ?: 0,
+                // The server dropped an audio it used to hold (retention): remember it, so the phone's copy is not sent back.
+                audioSha = sha ?: if ((prior ?: store.get(id))?.audioSha != null) AUDIO_PURGED else null, audioLen = file?.length() ?: 0,
                 pushedMarksJson = gson.toJson(
                     (marksOf(prior?.pushedMarksJson) + server.marks.filter { it.deletedAt == null } + (after?.marks ?: emptyList())).distinctBy { it.id },
                 ),
@@ -388,7 +389,7 @@ class WebSyncEngine(
     }
 
     private suspend fun retryMissingAudio() {
-        for (st in store.all().filter { it.audioMissing && it.audioSha != null }) {
+        for (st in store.all().filter { it.audioMissing && it.audioSha != null && it.audioSha != AUDIO_PURGED }) {
             if (local.hasAudio(st.recordingId)) { store.put(st.copy(audioMissing = false)); continue }
             val sha = st.audioSha ?: continue
             val target = local.audioTarget(st.recordingId, sha, "audio/mp4")
@@ -412,13 +413,15 @@ class WebSyncEngine(
         var sha = st?.audioSha
         var len = st?.audioLen ?: 0L
         val file = agg.audioFile?.takeIf { it.exists() && it.length() > 0 }
-        if (file != null && (sha == null || len != file.length())) {
+        // The server's retention removed this audio on purpose: the phone keeps its copy but never sends it back.
+        val purged = sha == AUDIO_PURGED
+        if (!purged && file != null && (sha == null || len != file.length())) {
             val computed = sha256(file)
             if (!remote.blobExists(computed)) remote.uploadBlob(computed, agg.input.audioMimeType, file)
             sha = computed
             len = file.length()
         }
-        val input = agg.input.copy(audioBlobSha256 = sha)
+        val input = agg.input.copy(audioBlobSha256 = if (purged) null else sha)
 
         if (st == null) {
             val server = remote.getAggregate(id)
@@ -557,6 +560,9 @@ class WebSyncEngine(
     }
 
     companion object {
+        /** Stored in [WebState.audioSha] when the server deleted the audio by its retention setting; never a real SHA-256. */
+        const val AUDIO_PURGED = "-purged-"
+
         fun sha256(text: String): String = MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
         fun sha256(file: File): String {

@@ -48,9 +48,17 @@ class SessionStore(context: Context) : TokenStore {
             .putString(K_EMAIL, result.user.email)
             .putString(K_ORG, result.org.name)
             .putString(K_ROLE, result.role)
+            .remove(K_KIND).remove(K_SUPER) // the login answer lacks them: AccountService asks /auth/me right after
             .putBoolean(K_SKIPPED, true) // signed in: nothing to skip any more
             .commit()
         _endedByServer.value = false
+        _session.value = readSession()
+    }
+
+    /** The account type and platform-admin flag from `/auth/me`, shown in Settings and used to word the org-change warning. */
+    fun saveProfile(orgKind: String?, superadmin: Boolean) {
+        if (prefs.getString(K_REFRESH, null) == null) return
+        prefs.edit().putString(K_KIND, orgKind ?: "team").putBoolean(K_SUPER, superadmin).commit()
         _session.value = readSession()
     }
 
@@ -67,7 +75,7 @@ class SessionStore(context: Context) : TokenStore {
 
     override fun clearSession() {
         prefs.edit().remove(K_ACCESS).remove(K_REFRESH).remove(K_EXPIRES_AT).remove(K_DEVICE)
-            .remove(K_NAME).remove(K_EMAIL).remove(K_ORG).remove(K_ROLE).commit()
+            .remove(K_NAME).remove(K_EMAIL).remove(K_ORG).remove(K_ROLE).remove(K_KIND).remove(K_SUPER).commit()
         _session.value = null
     }
 
@@ -84,6 +92,8 @@ class SessionStore(context: Context) : TokenStore {
             orgName = prefs.getString(K_ORG, "").orEmpty(),
             role = prefs.getString(K_ROLE, "").orEmpty(),
             deviceId = prefs.getString(K_DEVICE, "").orEmpty(),
+            orgKind = prefs.getString(K_KIND, "team").orEmpty().ifBlank { "team" },
+            superadmin = prefs.getBoolean(K_SUPER, false),
         )
     }
 
@@ -96,6 +106,8 @@ class SessionStore(context: Context) : TokenStore {
         const val K_EMAIL = "email"
         const val K_ORG = "org_name"
         const val K_ROLE = "role"
+        const val K_KIND = "org_kind"
+        const val K_SUPER = "superadmin"
         const val K_SKIPPED = "login_skipped"
     }
 }

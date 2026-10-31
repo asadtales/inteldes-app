@@ -42,6 +42,8 @@ tags:
   - { name: Pemrosesan AI }
   - { name: Pengaturan AI }
   - { name: Blob }
+  - { name: Bagikan, description: "Tautan publik untuk mengunduh notulensi/audio tanpa login." }
+  - { name: Superadmin, description: "Pengelolaan platform: organisasi tim dan akun pribadi. Hanya superadmin." }
   - { name: SSO Portal, description: "Aktif hanya bila SSO_CLIENT_SECRET dan SSO_ORG_SLUG terisi; selain itu semua rute /sso/* menjawab 404." }
   - { name: Google, description: "Aktif hanya bila GOOGLE_CLIENT_ID dan GOOGLE_CLIENT_SECRET terisi; selain itu 404." }
 
@@ -236,6 +238,20 @@ paths:
         "200": { description: "Perangkat.", content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/Device" } } } } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/audit:
+    get:
+      tags: [Perangkat]
+      summary: Aktivitas terbaru organisasi (admin)
+      description: Maksimal 100 entri terbaru. Tanpa rincian `meta`; judul rapat disertakan bila entri menyangkut rapat.
+      operationId: listAudit
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200": { description: "Entri terbaru dahulu.", content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /v1/devices/{id}:
     delete:
       tags: [Perangkat]
@@ -394,6 +410,16 @@ paths:
       responses:
         "200": { description: "Kategori urut `orderIndex`.", content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/Category" } } } } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/categories/counts:
+    get:
+      tags: [Kategori]
+      summary: Jumlah rapat per kategori
+      description: Dikelompokkan menurut label (huruf kecil). Rapat yang dihapus tidak dihitung.
+      operationId: getCategoryCounts
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200": { description: "Jumlah per label.", content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { type: object, required: [label, count], properties: { label: { type: string }, count: { type: integer } } } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /v1/categories/{id}:
     put:
       tags: [Kategori]
@@ -434,7 +460,7 @@ paths:
       operationId: listRecordings
       security: [{ bearerAuth: [] }, { cookieAuth: [] }]
       parameters:
-        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: q, in: query, description: "Cari di judul atau isi transkrip (tak peka huruf besar-kecil).", schema: { type: string, maxLength: 200 } }
         - { name: kind, in: query, schema: { type: string, maxLength: 100 } }
         - { name: status, in: query, schema: { $ref: "#/components/schemas/RecordingStatus" } }
         - { name: cursor, in: query, schema: { type: string, maxLength: 200 } }
@@ -592,6 +618,160 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { description: "Percakapan tidak terbaca.", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } } }
+  /v1/recordings/{id}/export:
+    get:
+      tags: [Rapat]
+      summary: Unduh notulensi/transkrip sebagai TXT, DOCX, atau PDF
+      description: Bisa dipanggil semua peran. `include` = `notes`, `transcript`, atau keduanya dipisah koma.
+      operationId: exportRecording
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+        - { name: format, in: query, schema: { type: string, enum: [txt, docx, pdf], default: docx } }
+        - { name: include, in: query, schema: { type: string, default: notes } }
+      responses:
+        "200": { description: "Berkas unduhan.", content: { "application/pdf": { schema: { type: string, format: binary } }, "text/plain": { schema: { type: string } }, "application/vnd.openxmlformats-officedocument.wordprocessingml.document": { schema: { type: string, format: binary } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/recordings/{id}/trim:
+    post:
+      tags: [Rapat]
+      summary: Potong audio menjadi rapat baru
+      description: Memotong rentang [startSec, endSec] di server (ffmpeg, tanpa sandi ulang) dan menyimpannya sebagai rapat baru berstatus RAW; rapat asli tidak berubah. Penanda dalam rentang bisa disalin dengan waktu digeser. Untuk mentranskripsi hanya sebagian rapat, potong dulu lalu proses rapat barunya.
+      operationId: trimRecording
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [startSec, endSec, title, kind], properties: { startSec: { type: integer, minimum: 0 }, endSec: { type: integer, minimum: 1 }, title: { type: string, maxLength: 300 }, kind: { type: string, maxLength: 100 }, copyMarks: { type: boolean, default: true } } } } }
+      responses:
+        "201": { description: "Rapat baru.", content: { application/json: { schema: { $ref: "#/components/schemas/Recording" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { description: "Rapat tanpa audio di server atau format belum didukung." }
+  /v1/recordings/{id}/shares:
+    post:
+      tags: [Bagikan]
+      summary: Buat tautan bagikan
+      description: Tautan url hanya tampil di respons ini. Siapa pun yang memegangnya bisa mengunduh tanpa login sampai dicabut atau kedaluwarsa.
+      operationId: createShare
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, properties: { includeTranscript: { type: boolean, default: false }, includeAudio: { type: boolean, default: true }, expiresInDays: { type: [integer, "null"], minimum: 1, maximum: 3650, default: null } } } } }
+      responses:
+        "201": { description: "Tautan dibuat.", content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/ShareLink" }, { type: object, required: [url], properties: { url: { type: string } } }] } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    get:
+      tags: [Bagikan]
+      summary: Daftar tautan bagikan sebuah rapat
+      operationId: listShares
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200": { description: "Tautan (tanpa token).", content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/ShareLink" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/shares/{id}:
+    delete:
+      tags: [Bagikan]
+      summary: Cabut tautan bagikan
+      operationId: revokeShare
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "204": { description: "Dicabut." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /s/{token}:
+    get:
+      tags: [Bagikan]
+      summary: Halaman unduhan publik
+      description: HTML sederhana tanpa login. Tautan tak berlaku, dicabut, atau kedaluwarsa menjawab 404.
+      operationId: sharePage
+      security: []
+      parameters: [{ name: token, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: "Halaman HTML.", content: { text/html: { schema: { type: string } } } }
+        "404": { description: "Tautan tidak berlaku." }
+  /s/{token}/download:
+    get:
+      tags: [Bagikan]
+      summary: Unduh berkas dari tautan bagikan
+      description: "f = docx, pdf, txt, transkrip (bila diizinkan), atau audio (bila diizinkan; mendukung Range)."
+      operationId: shareDownload
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+        - { name: f, in: query, required: true, schema: { type: string, enum: [docx, pdf, txt, transkrip, audio] } }
+        - { name: inline, in: query, schema: { type: string } }
+      responses:
+        "200": { description: "Berkas.", content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        "206": { description: "Sebagian audio (Range)." }
+        "404": { description: "Tautan tidak berlaku." }
+  /v1/admin/orgs:
+    get:
+      tags: [Superadmin]
+      summary: Semua organisasi dan akun
+      operationId: adminListOrgs
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200": { description: "Daftar organisasi.", content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/AdminOrg" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/admin/accounts:
+    post:
+      tags: [Superadmin]
+      summary: Buat organisasi tim atau akun pribadi
+      description: Membuat organisasi, pengguna admin-nya, dan tautan undangan untuk menetapkan sandi.
+      operationId: adminCreateAccount
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [kind, name, email], properties: { kind: { type: string, enum: [team, personal] }, orgName: { type: string, maxLength: 200 }, name: { type: string, maxLength: 200 }, email: { type: string, format: email } } } } }
+      responses:
+        "201": { description: "Dibuat.", content: { application/json: { schema: { type: object, required: [org, user, invite], properties: { org: { type: object, required: [id, kind], properties: { id: { type: string, format: uuid }, kind: { type: string } } }, user: { type: object, required: [id, email, name], properties: { id: { type: string, format: uuid }, email: { type: string }, name: { type: string } } }, invite: { $ref: "#/components/schemas/Invite" } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/orgs/{id}:
+    patch:
+      tags: [Superadmin]
+      summary: Ubah organisasi
+      description: Ganti nama, tandai sebagai penyedia kunci AI untuk akun pribadi, atau nonaktifkan seluruh anggotanya.
+      operationId: adminPatchOrg
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, properties: { name: { type: string }, sharesKeys: { type: boolean }, disabled: { type: boolean } }, additionalProperties: false } } }
+      responses:
+        "200": { description: "Tersimpan.", content: { application/json: { schema: { type: object, required: [id, ok], properties: { id: { type: string, format: uuid }, ok: { const: true } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/orgs/{id}/invite:
+    post:
+      tags: [Superadmin]
+      summary: Tautan atur ulang sandi untuk admin organisasi
+      operationId: adminInviteOrg
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200": { description: "Tautan baru.", content: { application/json: { schema: { type: object, required: [invite], properties: { invite: { $ref: "#/components/schemas/Invite" } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /v1/recordings/{id}/chat:
     post:
       tags: [Rapat]
@@ -1256,10 +1436,38 @@ components:
       type: object
       required: [id, email, name]
       properties: { id: { type: string, format: uuid }, email: { type: string }, name: { type: string } }
+    ShareLink:
+      type: object
+      required: [id, includeTranscript, includeAudio, createdAt, expiresAt, revokedAt, downloadCount]
+      properties:
+        id: { type: string, format: uuid }
+        includeTranscript: { type: boolean }
+        includeAudio: { type: boolean }
+        createdAt: { type: integer }
+        expiresAt: { type: [integer, "null"] }
+        revokedAt: { type: [integer, "null"] }
+        downloadCount: { type: integer }
+    AdminOrg:
+      type: object
+      required: [id, name, kind, sharesKeys, createdAt, recordingCount, disabled, members]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        kind: { type: string, enum: [team, personal] }
+        sharesKeys: { type: boolean }
+        createdAt: { type: integer }
+        recordingCount: { type: integer }
+        disabled: { type: boolean }
+        members:
+          type: array
+          items: { type: object, required: [id, email, name, role, disabled], properties: { id: { type: string, format: uuid }, email: { type: string }, name: { type: string }, role: { $ref: "#/components/schemas/Role" }, disabled: { type: boolean } } }
     OrgRef:
       type: object
       required: [id, name]
-      properties: { id: { type: string, format: uuid }, name: { type: string } }
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        kind: { type: string, enum: [team, personal], description: "team = arsip bersama; personal = arsip satu pengguna. Ada di /auth/me." }
     Identity:
       type: object
       required: [user, org, role, deviceId]
@@ -1268,6 +1476,7 @@ components:
         org: { $ref: "#/components/schemas/OrgRef" }
         role: { $ref: "#/components/schemas/Role" }
         deviceId: { type: string, format: uuid }
+        superadmin: { type: boolean, description: "Ada di /auth/me." }
         csrfToken: { type: string, description: "Hanya untuk sesi cookie." }
     WebSession:
       allOf:
@@ -1381,6 +1590,19 @@ components:
         - { $ref: "#/components/schemas/MobileSession" }
         - { type: object, required: [status], properties: { status: { const: approved } } }
 
+    AuditEntry:
+      type: object
+      required: [id, at, action, entity, entityId, title, userName, deviceName, platform]
+      properties:
+        id: { type: string }
+        at: { $ref: "#/components/schemas/EpochMs" }
+        action: { type: string, description: "Mis. recording.create, recording.process, auth.login, user.create." }
+        entity: { type: [string, "null"] }
+        entityId: { type: [string, "null"] }
+        title: { type: [string, "null"], description: "Judul rapat bila entri menyangkut rapat." }
+        userName: { type: [string, "null"] }
+        deviceName: { type: [string, "null"] }
+        platform: { enum: [android, web, null] }
     Device:
       type: object
       required: [id, name, platform, userEmail, createdAt, lastSeenAt, revokedAt, current]
@@ -1476,7 +1698,7 @@ components:
 
     Recording:
       type: object
-      required: [id, title, kind, createdAt, durationSec, audioBlobSha256, audioMimeType, status, speakerCount, engine, templateId, templateName, summary, provider, notesGeneratedAt, notulensiDensity, locationName, latitude, longitude, errorMessage, version, transcriptVersion, notesVersion, updatedAt, deletedAt]
+      required: [id, title, kind, createdAt, durationSec, audioBlobSha256, audioMimeType, source, status, speakerCount, engine, templateId, templateName, summary, provider, notesGeneratedAt, notulensiDensity, locationName, latitude, longitude, errorMessage, version, transcriptVersion, notesVersion, updatedAt, deletedAt]
       properties:
         id: { type: string, format: uuid }
         title: { type: string }
@@ -1485,6 +1707,7 @@ components:
         durationSec: { type: integer, minimum: 0 }
         audioBlobSha256: { oneOf: [{ $ref: "#/components/schemas/Sha256" }, { type: "null" }] }
         audioMimeType: { type: string }
+        source: { enum: [android, web, null], description: "Dari mana rapat pertama kali dibuat (HP atau web); null untuk data lama." }
         status: { $ref: "#/components/schemas/RecordingStatus" }
         speakerCount: { type: integer }
         engine: { $ref: "#/components/schemas/Engine" }
@@ -1744,6 +1967,7 @@ components:
         keepOriginalAudio: { type: boolean }
         autoProcessAfterRecording: { type: boolean }
         defaultTemplateId: { type: string, maxLength: 100 }
+        audioRetentionDays: { type: [integer, "null"], minimum: 0, maximum: 36500, description: "Masa simpan audio asli (hari sejak direkam). null = selamanya; 0 = hapus begitu notulensi siap. Teks dan foto tidak ikut dihapus." }
       additionalProperties: false
     SettingsView:
       type: object
@@ -1751,7 +1975,7 @@ components:
       properties:
         settings:
           type: object
-          required: [provider, density, outputLanguage, economyMode, keepOriginalAudio, autoProcessAfterRecording, defaultTemplateId]
+          required: [provider, density, outputLanguage, economyMode, keepOriginalAudio, autoProcessAfterRecording, defaultTemplateId, audioRetentionDays]
           properties:
             provider: { $ref: "#/components/schemas/AiProvider" }
             density: { $ref: "#/components/schemas/Density" }
@@ -1760,6 +1984,7 @@ components:
             keepOriginalAudio: { type: boolean }
             autoProcessAfterRecording: { type: boolean }
             defaultTemplateId: { type: string }
+            audioRetentionDays: { type: [integer, "null"] }
         ai:
           type: object
           required: [deepgram, gemini, claude]

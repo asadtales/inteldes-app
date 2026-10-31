@@ -54,9 +54,11 @@ class WebSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                     // A different organisation: sending this phone's recordings there could mix two villages' data.
                     store.lastSummary = "Akun ini milik organisasi lain (${org.name}). Konfirmasi di Pengaturan sebelum mengirim."
                     store.needsOrgConfirm = org.name
+                    store.needsOrgKind = org.kind ?: "team"
                     return@withLock Result.success()
                 }
                 store.needsOrgConfirm = null
+                store.needsOrgKind = null
                 val api = WebApi(account.api)
                 val engine = WebSyncEngine(RoomWebLocal(applicationContext, app.database), api, store)
                 val report = engine.run { store.progress = it }

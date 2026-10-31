@@ -45,6 +45,11 @@ class WebSyncStore(context: Context, db: IntelDesDatabase) : WebStateStore {
         get() = prefs.getString(K_CONFIRM, null)
         set(v) = prefs.edit().putString(K_CONFIRM, v).apply()
 
+    /** `team` or `personal`: what kind of account is waiting in [needsOrgConfirm]. */
+    var needsOrgKind: String?
+        get() = prefs.getString(K_CONFIRM_KIND, null)
+        set(v) = prefs.edit().putString(K_CONFIRM_KIND, v).apply()
+
     /** What the running sync is doing right now; null when idle. */
     var progress: String?
         get() = prefs.getString(K_PROGRESS, null)
@@ -60,7 +65,7 @@ class WebSyncStore(context: Context, db: IntelDesDatabase) : WebStateStore {
      */
     suspend fun switchOrg(newOrgId: String) {
         dao.clear()
-        prefs.edit().remove(K_CURSOR).remove(K_RETRY).remove(K_DELETES).putString(K_ORG, newOrgId).remove(K_CONFIRM).commit()
+        prefs.edit().remove(K_CURSOR).remove(K_RETRY).remove(K_DELETES).putString(K_ORG, newOrgId).remove(K_CONFIRM).remove(K_CONFIRM_KIND).commit()
     }
 
     /** Forget the cursor and retry list (e.g. after logging into another account) so the next run starts from the top. */
@@ -106,6 +111,7 @@ class WebSyncStore(context: Context, db: IntelDesDatabase) : WebStateStore {
         private const val K_PULLED = "last_pulled"
         private const val K_FAILED = "last_failed"
         private const val K_CONFIRM = "confirm_org"
+        private const val K_CONFIRM_KIND = "confirm_org_kind"
         private const val K_PROGRESS = "progress"
         private const val K_CURSOR = "cursor"
         private const val K_DELETES = "pending_deletes"

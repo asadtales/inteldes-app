@@ -3,7 +3,8 @@ package com.inteldes.app.data.server
 import java.io.IOException
 
 data class ServerUser(val id: String, val email: String, val name: String)
-data class ServerOrg(val id: String, val name: String)
+/** [kind]: `team` (shared archive) or `personal` (one user's separate archive). Only `/auth/me` carries it; the login answer does not. */
+data class ServerOrg(val id: String, val name: String, val kind: String? = null)
 
 /** Response of `POST /v1/auth/login` and of `POST /v1/auth/pair/claim` (add_phone). */
 data class LoginResult(
@@ -19,7 +20,7 @@ data class LoginResult(
 /** Response of `POST /v1/auth/refresh`: the refresh token is a NEW one — the old one is dead. */
 data class RefreshResult(val deviceId: String, val accessToken: String, val refreshToken: String, val expiresInSec: Int)
 
-data class MeResult(val user: ServerUser, val org: ServerOrg, val role: String, val deviceId: String)
+data class MeResult(val user: ServerUser, val org: ServerOrg, val role: String, val deviceId: String, val superadmin: Boolean = false)
 
 /** What the web browser behind a QR looks like, shown on the approval screen. */
 data class PairInspect(val kind: String, val requesterIp: String, val requesterUa: String, val createdAt: Long, val expiresAt: Long)
@@ -31,7 +32,12 @@ data class PairInspect(val kind: String, val requesterIp: String, val requesterU
 class ServerException(val status: Int, val code: String?, message: String) : IOException(message)
 
 /** The signed-in account as the UI shows it (tokens are never part of this). */
-data class Session(val name: String, val email: String, val orgName: String, val role: String, val deviceId: String) {
+data class Session(
+    val name: String, val email: String, val orgName: String, val role: String, val deviceId: String,
+    val orgKind: String = "team", val superadmin: Boolean = false,
+) {
+    val isPersonal: Boolean get() = orgKind == "personal"
+
     val roleLabel: String
         get() = when (role) {
             "admin" -> "Admin"

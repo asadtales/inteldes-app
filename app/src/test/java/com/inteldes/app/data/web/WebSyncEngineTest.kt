@@ -165,6 +165,13 @@ private class FakeServer : WebRemote {
         r.chat[c.id] = c
         touch(id)
     }
+    /** The server's retention setting deleting the audio of a finished meeting: the sha becomes null, the file is gone. */
+    fun webPurgeAudio(id: String) {
+        val r = recs.getValue(id)
+        r.meta.audioBlobSha256?.let { blobs.remove(it) }
+        r.meta = r.meta.copy(audioBlobSha256 = null, version = r.meta.version + 1)
+        touch(id)
+    }
     fun count(name: String) = calls.count { it == name }
 }
 
@@ -277,6 +284,27 @@ class WebSyncEngineTest {
         assertEquals(1, rec.marks.size)
         assertEquals("AUDIODATA", String(server.blobs.getValue(rec.meta.audioBlobSha256!!)))
         assertEquals(1, report.pushed)
+    }
+
+    @Test
+    fun audioTheServerDeletedByRetentionStaysOnThePhoneAndIsNeverSentBack() {
+        phone.create("r1", "Rapat 1", status = "DONE", audio = "AUDIODATA", transcript = true, notes = true)
+        sync()
+        val sha = server.recs.getValue("r1").meta.audioBlobSha256!!
+        server.webPurgeAudio("r1")
+        sync()
+        assertEquals("AUDIODATA", phone.recs.getValue("r1").audio!!.readText())          // the phone keeps its own copy
+        assertEquals(WebSyncEngine.AUDIO_PURGED, store.states.getValue("r1").audioSha)
+        phone.mark("r1", 30, "penting")                                                  // any later edit pushes the recording again
+        phone.title("r1", "Rapat 1 (ubah)")
+        server.calls.clear()
+        val report = sync()
+        assertEquals(0, report.failed)
+        assertEquals(0, server.count("upload"))
+        assertFalse(sha in server.blobs)
+        assertNull(server.recs.getValue("r1").meta.audioBlobSha256)
+        assertEquals("Rapat 1 (ubah)", server.recs.getValue("r1").meta.title)           // the edit itself still goes up
+        assertEquals(1, server.recs.getValue("r1").marks.size)
     }
 
     @Test

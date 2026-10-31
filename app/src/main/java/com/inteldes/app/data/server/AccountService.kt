@@ -59,7 +59,11 @@ class AccountService(
     }
 
     /** The organisation this session belongs to (asks the server). */
-    suspend fun currentOrg(): ServerOrg = api.me().org
+    suspend fun currentOrg(): ServerOrg {
+        val me = api.me()
+        store.saveProfile(me.org.kind, me.superadmin)       // keeps the Settings card's account type current
+        return me.org
+    }
 
     suspend fun inspect(code: String): PairInspect = api.inspect(code)
 
@@ -76,5 +80,6 @@ class AccountService(
         val old = store.accessToken
         store.saveLogin(result)
         if (old != null) runCatching { api.logoutWith(old) }
+        runCatching { currentOrg() }                          // team or personal account? only /auth/me says
     }
 }

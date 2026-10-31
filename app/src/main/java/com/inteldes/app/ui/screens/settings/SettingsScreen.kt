@@ -177,7 +177,7 @@ fun SettingsScreen(
                 KickerLabel("Akun & web", modifier = Modifier.padding(bottom = 10.dp))
                 AccountSection(
                     serverSession, webState, onLogin = onLogin, onApprove = onApproveWebLogin, onLogout = vm::logoutServer,
-                    onWebSync = vm::setWebSync, onWebSyncNow = vm::webSyncNow, onConfirmOrg = vm::confirmOrgSwitch,
+                    onWebSync = vm::setWebSync, onWebSyncNow = vm::webSyncNow, onConfirmOrg = vm::confirmOrgSwitch, onDeclineOrg = vm::declineOrgSwitch,
                 )
 
                 Spacer(Modifier.height(20.dp))
@@ -545,6 +545,7 @@ private fun AccountSection(
     onWebSync: (Boolean) -> Unit,
     onWebSyncNow: () -> Unit,
     onConfirmOrg: () -> Unit,
+    onDeclineOrg: () -> Unit,
 ) {
     var confirmLogout by remember { mutableStateOf(false) }
     var confirmEnable by remember { mutableStateOf(false) }
@@ -559,13 +560,17 @@ private fun AccountSection(
             DriveButton("MASUK KE SERVER", filled = true, onClick = onLogin)
         } else {
             Text("Masuk sebagai", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
-            Text("${session.name} · ${session.roleLabel}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Text(session.orgName, color = IdColor.Neutral700, fontSize = 12.sp)
+            Text("${session.name} · ${if (session.isPersonal) "Akun pribadi" else session.roleLabel}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(
+                if (session.isPersonal) "Arsip terpisah, hanya milik Anda" else session.orgName,
+                color = IdColor.Neutral700, fontSize = 12.sp,
+            )
+            if (session.superadmin) Text("Superadmin platform (kelola di web)", color = IdColor.Neutral600, fontSize = 11.5.sp)
             Text(session.email, color = IdColor.Neutral600, fontSize = 11.5.sp)
             Spacer(Modifier.height(10.dp))
             DriveButton("MASUK WEB DENGAN QR", filled = true, onClick = onApprove)
             Spacer(Modifier.height(14.dp))
-            WebSyncCard(web, canWrite = session.role != "pembaca", onEnable = { confirmEnable = true }, onDisable = { onWebSync(false) }, onNow = onWebSyncNow, onConfirmOrg = onConfirmOrg)
+            WebSyncCard(web, canWrite = session.role != "pembaca", onEnable = { confirmEnable = true }, onDisable = { onWebSync(false) }, onNow = onWebSyncNow, onConfirmOrg = onConfirmOrg, onDeclineOrg = onDeclineOrg)
             Spacer(Modifier.height(14.dp))
             DriveButton("KELUAR DARI SERVER", filled = false, onClick = { confirmLogout = true })
         }
@@ -577,7 +582,8 @@ private fun AccountSection(
             text = {
                 Text(
                     "Rekaman di HP ini (audio, transkrip, notulensi, penanda, foto, chat, template, konteks) akan dikirim ke server " +
-                        "organisasi ${session?.orgName.orEmpty()}, dan rekaman dari web diambil ke sini.\n\n" +
+                        (if (session?.isPersonal == true) "akun pribadi ${session.name}" else "organisasi ${session?.orgName.orEmpty()}") +
+                        ", dan rekaman dari web diambil ke sini.\n\n" +
                         "Tidak ada rekaman di HP yang dihapus oleh sinkron ini. Rekaman yang dihapus di web tetap ada di HP. " +
                         "Sinkron Google Drive tidak berubah.",
                     fontSize = 13.sp, color = IdColor.Neutral700, lineHeight = 18.sp,
@@ -606,6 +612,7 @@ private fun WebSyncCard(
     onDisable: () -> Unit,
     onNow: () -> Unit,
     onConfirmOrg: () -> Unit,
+    onDeclineOrg: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().border(1.dp, IdColor.Neutral300).padding(12.dp)) {
         Text("SINKRON KE WEB", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
@@ -633,13 +640,21 @@ private fun WebSyncCard(
         }
         if (web.otherOrg != null) {
             Spacer(Modifier.height(8.dp))
+            val personal = web.otherOrgKind == "personal"
             Text(
-                "Akun ini milik organisasi \"${web.otherOrg}\", berbeda dari yang terakhir dipakai HP ini. " +
-                    "Rekaman HP belum dikirim. Kirim ke organisasi ini? Data dua desa bisa tercampur bila salah.",
+                if (personal) {
+                    "Akun ini adalah akun pribadi \"${web.otherOrg}\" (arsip terpisah milik satu pengguna), berbeda dari yang terakhir dipakai HP ini. " +
+                        "Rekaman HP belum dikirim. Kirim semua rekaman HP ini ke arsip pribadi tersebut? Rekaman organisasi lain di HP ikut masuk bila salah."
+                } else {
+                    "Akun ini milik organisasi \"${web.otherOrg}\", berbeda dari yang terakhir dipakai HP ini. " +
+                        "Rekaman HP belum dikirim. Kirim ke organisasi ini? Data dua desa bisa tercampur bila salah."
+                },
                 color = IdColor.Accent, fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(6.dp))
-            DriveButton("YA, KIRIM KE ORGANISASI INI", filled = true, onClick = onConfirmOrg)
+            DriveButton(if (personal) "YA, KIRIM KE AKUN PRIBADI INI" else "YA, KIRIM KE ORGANISASI INI", filled = true, onClick = onConfirmOrg)
+            Spacer(Modifier.height(6.dp))
+            DriveButton("TIDAK, JANGAN KIRIM (MATIKAN SINKRON)", filled = false, onClick = onDeclineOrg)
         }
         Spacer(Modifier.height(10.dp))
         if (web.enabled) {

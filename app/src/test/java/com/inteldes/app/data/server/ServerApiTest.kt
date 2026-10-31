@@ -70,6 +70,27 @@ class ServerApiTest {
     }
 
     @Test
+    fun meTellsATeamFromAPersonalAccountAndTheLoginAnswerDoesNot() {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                requests += request
+                return if (request.path == "/v1/auth/me") {
+                    json(200, """{"user":{"id":"u1","email":"ani@desa.id","name":"Ani"},"org":{"id":"o9","name":"Ani","kind":"personal"},
+                        "superadmin":true,"role":"admin","deviceId":"d1"}""")
+                } else json(200, loginOk)
+            }
+        }
+        val api = ServerApi(url(), MemoryTokens("A1", "R1"))
+        val login = runBlocking { api.login("ani@desa.id", "rahasia", "HP") }
+        assertNull(login.org.kind)                                          // not in the login answer: AccountService asks /auth/me
+        val me = runBlocking { api.me() }
+        assertEquals("personal", me.org.kind)
+        assertTrue(me.superadmin)
+        assertTrue(Session("Ani", "a@b.c", "Ani", "admin", "d1", orgKind = me.org.kind.orEmpty()).isPersonal)
+        assertFalse(Session("Ani", "a@b.c", "Desa", "admin", "d1").isPersonal)   // old stored sessions count as a team
+    }
+
+    @Test
     fun aWrongPasswordIsAnErrorWithTheServersMessageAndNeverTriggersARefresh() {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
