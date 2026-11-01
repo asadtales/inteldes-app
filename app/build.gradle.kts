@@ -4,15 +4,6 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-val envFile = rootProject.file(".env")
-val env: Map<String, String> = if (envFile.exists()) {
-    envFile.readLines()
-        .map { it.trim() }
-        .filter { it.isNotEmpty() && !it.startsWith("#") && it.contains("=") }
-        .associate { it.substringBefore("=").trim() to it.substringAfter("=").trim() }
-} else emptyMap()
-
-fun buildConfigString(name: String) = "\"" + (env[name] ?: "").replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "com.inteldes.app"
@@ -27,9 +18,13 @@ android {
 
         // The IntelDes web/server this app can sign in to (login + QR pairing). HTTPS only.
         buildConfigField("String", "SERVER_URL", "\"https://inteldes.at-in.site\"")
-        buildConfigField("String", "EMBEDDED_GEMINI_KEY", buildConfigString("GEMINI_API_KEY"))
-        buildConfigField("String", "EMBEDDED_CLAUDE_KEY", buildConfigString("CLAUDE_API_KEY"))
-        buildConfigField("String", "EMBEDDED_DEEPGRAM_KEY", buildConfigString("DEEPGRAM_API_KEY"))
+        // CUT-OVER KUNCI: kunci AI TIDAK BOLEH tertanam di APK (APK bisa dibongkar dan kuncinya dibaca siapa saja).
+        // Tiga field berikut sengaja KOSONG dan tidak lagi dibaca dari .env; hanya dipertahankan agar kode lama
+        // (SecurePrefs.hasEmbedded*/effective*Key) tetap terkompilasi. Hapus bersama kodenya saat pembersihan.
+        // Lihat docs/server/CUTOVER_KUNCI_APK.md.
+        buildConfigField("String", "EMBEDDED_GEMINI_KEY", "\"\"")
+        buildConfigField("String", "EMBEDDED_CLAUDE_KEY", "\"\"")
+        buildConfigField("String", "EMBEDDED_DEEPGRAM_KEY", "\"\"")
 
         // arm64-v8a covers virtually every real device sold since ~2017 (incl. the
         // Galaxy M51 this app is tested on); x86_64 is only here so the on-device
