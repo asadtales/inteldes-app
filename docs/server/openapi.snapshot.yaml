@@ -144,6 +144,41 @@ paths:
         "200": { description: "Identitas.", content: { application/json: { schema: { $ref: "#/components/schemas/Identity" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /auth/app/start:
+    get:
+      tags: [Auth]
+      summary: Mulai login Google/portal dari app Android (dibuka di browser HP)
+      description: |
+        Menyetel cookie `idapp` bertanda tangan (challenge PKCE S256 + state + penyedia, 10 menit) lalu 302 ke alur login yang sudah ada
+        (`/auth/google/login` atau `/sso/login`). Di akhir alur, server menyerahkan **kode sekali pakai** (2 menit) ke
+        `inteldes://auth/callback?code=...&state=...` (atau `?error=...&state=...`) lewat halaman "Buka IntelDes"; tujuan akhir konstan dan tidak berasal dari klien.
+        Kode ditukar lewat `POST /v1/auth/app/exchange` bersama verifier. Menjawab 404 bila `APP_LOGIN` mati.
+      operationId: appLoginStart
+      security: []
+      parameters:
+        - { name: provider, in: query, required: true, schema: { type: string, enum: [google, sso] } }
+        - { name: challenge, in: query, required: true, description: "base64url(SHA-256(verifier)) tanpa padding, 43 karakter.", schema: { type: string, pattern: "^[A-Za-z0-9_-]{43}$" } }
+        - { name: state, in: query, required: true, description: "Acak dari app, 16-128 karakter; dikembalikan apa adanya.", schema: { type: string, pattern: "^[A-Za-z0-9_-]{16,128}$" } }
+      responses:
+        "302": { description: "Menuju alur login penyedia; cookie idapp dipasang." }
+        "400": { description: "Parameter tidak valid atau penyedia belum diaktifkan (halaman galat, tanpa redirect)." }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/auth/app/exchange:
+    post:
+      tags: [Auth]
+      summary: Tukar kode login app dengan token perangkat Android
+      description: "Kode sekali pakai, hangus pada percobaan pertama apa pun hasilnya. Hasilnya sama dengan POST /v1/auth/login untuk android. Batas 10/menit/IP."
+      operationId: appLoginExchange
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [code, verifier], properties: { code: { type: string }, verifier: { type: string, pattern: "^[A-Za-z0-9._~-]{43,128}$" }, platform: { const: android }, deviceName: { type: string, maxLength: 100 } } } } }
+      responses:
+        "200": { description: "Sesi perangkat.", content: { application/json: { schema: { $ref: "#/components/schemas/MobileSession" } } } }
+        "400": { description: "invalid_code: kode tidak ada, kedaluwarsa, sudah dipakai, atau verifier salah (satu pesan yang sama)." }
+        "403": { description: "account_disabled: akun nonaktif atau tidak lagi terdaftar." }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { description: "Terlalu banyak percobaan." }
   /v1/auth/pair/start:
     post:
       tags: [Pairing]
@@ -774,6 +809,71 @@ paths:
         content: { application/json: { schema: { type: object, properties: { name: { type: string }, sharesKeys: { type: boolean }, disabled: { type: boolean } }, additionalProperties: false } } }
       responses:
         "200": { description: "Tersimpan.", content: { application/json: { schema: { type: object, required: [id, ok], properties: { id: { type: string, format: uuid }, ok: { const: true } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/plans:
+    get:
+      tags: [Superadmin]
+      summary: Daftar paket kuota
+      operationId: adminListPlans
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200": { description: "Paket.", content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/Plan" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Superadmin]
+      summary: Buat paket kuota
+      operationId: adminCreatePlan
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlanInput" } } } }
+      responses:
+        "201": { description: "Dibuat.", content: { application/json: { schema: { $ref: "#/components/schemas/Plan" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/admin/plans/{id}:
+    put:
+      tags: [Superadmin]
+      summary: Ubah paket kuota
+      description: Mengganti seluruh isi paket; organisasi yang memakainya langsung mengikuti.
+      operationId: adminUpdatePlan
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlanInput" } } } }
+      responses:
+        "200": { description: "Tersimpan.", content: { application/json: { schema: { $ref: "#/components/schemas/Plan" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Superadmin]
+      summary: Hapus paket kuota
+      description: Ditolak 409 plan_in_use bila masih dipasang pada organisasi.
+      operationId: adminDeletePlan
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "204": { description: "Dihapus." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/orgs/{id}/plan:
+    put:
+      tags: [Superadmin]
+      summary: Pasang paket ke organisasi
+      description: "planId null = kembali ke paket bawaan sistem. Paket nonaktif tidak bisa dipasang baru (409 plan_inactive)."
+      operationId: adminSetOrgPlan
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [planId], properties: { planId: { type: [string, "null"], format: uuid } } } } } }
+      responses:
+        "200": { description: "Terpasang.", content: { application/json: { schema: { type: object, required: [id, planId], properties: { id: { type: string, format: uuid }, planId: { type: [string, "null"], format: uuid } } } } } }
         "400": { $ref: "#/components/responses/ValidationError" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -1468,10 +1568,22 @@ components:
         downloadCount: { type: integer }
     AdminOrg:
       type: object
-      required: [id, name, kind, sharesKeys, createdAt, recordingCount, disabled, members]
+      required: [id, name, kind, sharesKeys, createdAt, recordingCount, disabled, planId, usage, members]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
+        planId: { type: [string, "null"], format: uuid, description: "null = paket bawaan sistem." }
+        usage:
+          type: object
+          required: [source, plan, minutes, jobs, asks, resetsAt]
+          description: "Pemakaian periode berjalan menurut paket organisasi (informasi; kuota hanya berlaku bila source = platform)."
+          properties:
+            source: { $ref: "#/components/schemas/KeySource" }
+            plan: { type: object, required: [id, name], properties: { id: { type: [string, "null"] }, name: { type: string } } }
+            minutes: { type: object, required: [used, limit], properties: { used: { type: integer }, limit: { type: [integer, "null"] } } }
+            jobs: { type: object, required: [used, limit], properties: { used: { type: integer }, limit: { type: [integer, "null"] } } }
+            asks: { type: object, required: [used, limit], properties: { used: { type: integer }, limit: { type: [integer, "null"] } } }
+            resetsAt: { type: integer }
         kind: { type: string, enum: [team, personal] }
         sharesKeys: { type: boolean }
         createdAt: { type: integer }
@@ -1546,6 +1658,7 @@ components:
         password: { const: true }
         sso: { type: boolean, description: "SSO Portal dikonfigurasi." }
         google: { type: boolean, description: "Login Google dikonfigurasi." }
+        appLogin: { type: boolean, description: "App Android boleh login lewat Google/portal (APP_LOGIN=true dan penyedia terkonfigurasi)." }
         googleSignup: { type: boolean, description: "Akun Google baru otomatis dibuatkan akun pribadi (GOOGLE_SIGNUP=true)." }
     LinkRequest:
       type: object
@@ -1996,14 +2109,38 @@ components:
       description: "own = kunci API milik organisasi ini; platform = kunci IntelDes dengan kuota harian."
     AiAccess:
       type: object
-      required: [source, platformAvailable, jobs, asks, platformLimit]
-      description: "Sumber kunci yang dipakai serta pemakaian dan batas 24 jam terakhir. Kuota yang ketat berlaku untuk kunci IntelDes."
+      required: [source, platformAvailable, plan, jobs, asks, minutes, resetsAt, platformLimit]
+      description: |
+        Sumber kunci yang dipakai serta pemakaian dan batas. Kunci IntelDes (`source: platform`) memakai paket organisasi dengan periode kalender WIB
+        (`resetsAt` = kapan periode berganti); kunci sendiri (`own`) tanpa paket, hanya pagar 24 jam bergulir. `limit: null` = tanpa batas.
       properties:
         source: { $ref: "#/components/schemas/KeySource" }
         platformAvailable: { type: boolean }
-        jobs: { type: object, required: [used, limit], properties: { used: { type: integer }, limit: { type: integer } } }
-        asks: { type: object, required: [used, limit], properties: { used: { type: integer }, limit: { type: integer } } }
-        platformLimit: { type: object, required: [jobs, asks], properties: { jobs: { type: integer }, asks: { type: integer } } }
+        plan: { type: [object, "null"], required: [id, name], properties: { id: { type: [string, "null"], description: "null = paket bawaan sistem." }, name: { type: string } } }
+        jobs: { type: object, required: [used, limit], properties: { used: { type: integer }, limit: { type: [integer, "null"] } } }
+        asks: { type: object, required: [used, limit], properties: { used: { type: integer }, limit: { type: [integer, "null"] } } }
+        minutes: { type: object, required: [used, limit], properties: { used: { type: integer }, limit: { type: [integer, "null"] } } }
+        resetsAt: { type: [integer, "null"], description: "ms epoch; null bila tidak memakai paket." }
+        platformLimit: { type: object, required: [jobs, asks, minutes], properties: { jobs: { type: [integer, "null"] }, asks: { type: [integer, "null"] }, minutes: { type: [integer, "null"] } } }
+    PlanInput:
+      type: object
+      required: [name, period, audioMinutes, jobs, asks, maxRecordingMinutes]
+      properties:
+        name: { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 500, default: "" }
+        period: { type: string, enum: [day, week, month], description: "Jendela hitung kuota (kalender WIB)." }
+        audioMinutes: { type: [integer, "null"], minimum: 0, description: "Menit audio yang boleh ditranskripsi per periode; null = tanpa batas." }
+        jobs: { type: [integer, "null"], minimum: 0, description: "Jumlah pemrosesan (process/regenerate) per periode." }
+        asks: { type: [integer, "null"], minimum: 0, description: "Jumlah pertanyaan AI per periode." }
+        maxRecordingMinutes: { type: [integer, "null"], minimum: 0, description: "Panjang maksimum satu rekaman yang boleh diproses." }
+        allowedProviders: { type: array, items: { type: string, enum: [GEMINI, CLAUDE] }, default: [], description: "Kosong = semua penyedia." }
+        active: { type: boolean, default: true, description: "Paket nonaktif tidak bisa dipasang baru." }
+    Plan:
+      allOf:
+        - { $ref: "#/components/schemas/PlanInput" }
+        - type: object
+          required: [id, orgCount, createdAt]
+          properties: { id: { type: string, format: uuid }, orgCount: { type: integer }, createdAt: { type: integer } }
     SettingsView:
       type: object
       required: [settings, aiAccess, ai, models]
