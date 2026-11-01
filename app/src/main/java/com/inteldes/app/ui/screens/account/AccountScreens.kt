@@ -136,6 +136,14 @@ fun LoginScreen(
             )
             Spacer(Modifier.height(10.dp))
         }
+        if ((providers.google || providers.sso) && !providers.appLogin) {
+            // The server knows Google / the portal but has not switched on hand-back to the app: say so instead of hiding it silently.
+            Text(
+                "Masuk dengan Google atau portal dari aplikasi belum diaktifkan di server. Sementara, masuk dengan email dan sandi, atau pindai QR dari web yang sudah masuk lewat Google.",
+                color = IdColor.Neutral600, fontSize = 11.sp, lineHeight = 15.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+        }
         BigButton("PINDAI QR DARI WEB", filled = false, enabled = !state.loading, onClick = onScanQr)
         if (canSkip) {
             Spacer(Modifier.height(22.dp))

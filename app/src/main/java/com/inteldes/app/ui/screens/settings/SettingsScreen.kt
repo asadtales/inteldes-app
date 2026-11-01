@@ -751,11 +751,6 @@ private fun AboutSection() {
         Spacer(Modifier.height(12.dp))
         AboutLine("Versi", "${com.inteldes.app.BuildConfig.VERSION_NAME} (build ${com.inteldes.app.BuildConfig.VERSION_CODE})")
         AboutLine(
-            "Sumber",
-            "commit ${com.inteldes.app.BuildConfig.BUILD_COMMIT}" +
-                if (com.inteldes.app.BuildConfig.BUILD_DIRTY) " + perubahan yang belum di-commit (build uji, bukan rilis)" else " (sesuai commit)",
-        )
-        AboutLine(
             "Dibangun",
             java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale("id", "ID")).format(java.util.Date(com.inteldes.app.BuildConfig.BUILD_TIME_MS)),
         )

@@ -133,9 +133,7 @@ Hal yang tetap belum terbukti: semuanya masih dengan server palsu atau tes unit;
 
 ## 7. Versi, "Tentang", dan hasil uji di HP (Galaxy M51)
 
-**Versi 2.5.0 (build 4).** Layar Pengaturan > Tentang kini menampilkan apa adanya: versi dan nomor build, **commit sumber** (bila ada perubahan yang belum di-commit saat membangun, tertulis "+ perubahan yang belum di-commit (build uji, bukan rilis)"), waktu build, dan "Kunci AI: tidak ada di dalam aplikasi". Nilainya diisi saat build dari git (`BUILD_COMMIT`, `BUILD_DIRTY`, `BUILD_TIME_MS` di `app/build.gradle.kts`). Daftar disclaimer juga diperbarui: proses di server, tautan bagikan publik, hapus template/konteks, login lewat browser, dan tidak ada kunci AI di dalam app.
-
-Cara membaca: APK yang dibangun dari commit bersih menampilkan `(sesuai commit)`; APK yang dibangun dari pohon kerja kotor menampilkan peringatan itu. APK rilis harus dibangun dari commit bersih.
+**Versi 2.5.0 (build 4).** Layar Pengaturan > Tentang menampilkan versi dan nomor build, waktu build, dan "Kunci AI: tidak ada di dalam aplikasi" (`BUILD_TIME_MS` diisi saat build di `app/build.gradle.kts`). Daftar disclaimer diperbarui: proses di server, tautan bagikan publik, hapus template/konteks, login lewat browser, dan tidak ada kunci AI di dalam app. Commit sumber sengaja tidak ditampilkan di layar Tentang.
 
 **Diuji di HP asli (1 Nov 2026):** migrasi 7→9 (3 tes instrumentasi lolos), potong 3 rentang pada rekaman WebM (hasil 44,98 detik, terdecode penuh, penanda 43→23), draf potong (simpan dan lanjutkan), deteksi hening pada audio WebM, ekspor PDF (dibaca sebagai gambar), ubah nama penanda dan bendera di transkrip, kartu "Kunci AI di server" dengan server produksi, dialog pilihan "Diproses di", daftar rekaman yang ikut sinkron.
 

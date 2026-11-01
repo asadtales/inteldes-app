@@ -4,18 +4,6 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-/** Output of a git command run in the repo, or "" when git is not there (a source archive, for instance). */
-fun git(vararg args: String): String = try {
-    ProcessBuilder("git", *args).directory(rootDir).redirectErrorStream(true).start().let { p ->
-        p.inputStream.bufferedReader().readText().trim().also { p.waitFor() }
-    }
-} catch (e: Exception) { "" }
-
-// What the "Tentang" screen tells the user about THIS build, so a build can always be traced to its source.
-val buildCommit: String = git("rev-parse", "--short=8", "HEAD").ifBlank { "tidak diketahui" }
-// True when tracked files differ from that commit: then the build is NOT exactly what the commit contains.
-val buildDirty: Boolean = try { ProcessBuilder("git", "diff", "--quiet", "HEAD").directory(rootDir).start().waitFor() != 0 } catch (e: Exception) { false }
-
 android {
     namespace = "com.inteldes.app"
     compileSdk = 34
@@ -35,8 +23,6 @@ android {
 
         // The IntelDes web/server this app can sign in to (login + QR pairing). HTTPS only.
         buildConfigField("String", "SERVER_URL", "\"https://inteldes.at-in.site\"")
-        buildConfigField("String", "BUILD_COMMIT", "\"$buildCommit\"")
-        buildConfigField("boolean", "BUILD_DIRTY", buildDirty.toString())
         buildConfigField("long", "BUILD_TIME_MS", "${System.currentTimeMillis()}L")
 
         // arm64-v8a covers virtually every real device sold since ~2017 (incl. the
