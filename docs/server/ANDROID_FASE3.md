@@ -84,7 +84,6 @@ membuat. Nilai lain → `400 bad_if_match`.
 - Galat: `422 transcript_missing|secret_missing|model_missing|context_empty`, `409 busy`, `429 quota_exceeded|provider_rate_limited`,
   `502 provider_failed`, `504 provider_unreachable`. Pembaca → 403. Mode langsung (HP memanggil AI sendiri) boleh tetap jadi cadangan offline.
 
-## 7. Yang belum ada di server (jangan dipakai dulu)
+## 7. Yang dulu belum ada di server (kini sudah ada)
 
-Transkripsi sebagian rentang waktu (`rangeStartSec/EndSec`, butuh ffmpeg), ekspor DOCX/PDF, potong audio. Tetap jalan lokal di app sampai
-server siap.
+Ekspor DOCX/PDF, potong audio (banyak rentang), dan deteksi hening sudah tersedia sejak Fase 4; transkripsi sebagian rentang dilakukan dengan memotong dulu lalu memproses rekaman barunya. Kontrak dan catatannya ada di `ANDROID_FASE4.md`.
