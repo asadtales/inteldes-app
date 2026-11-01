@@ -70,13 +70,32 @@ class WebSyncStore(context: Context, db: IntelDesDatabase) : WebStateStore {
      */
     suspend fun switchOrg(newOrgId: String, pullOnly: Boolean = false) {
         dao.clear()
-        prefs.edit().remove(K_CURSOR).remove(K_RETRY).remove(K_DELETES).putString(K_ORG, newOrgId).putBoolean(K_PULL_ONLY, pullOnly).remove(K_CONFIRM).remove(K_CONFIRM_KIND).commit()
+        prefs.edit().remove(K_LIBRARY).remove(K_CURSOR).remove(K_RETRY).remove(K_DELETES).putString(K_ORG, newOrgId).putBoolean(K_PULL_ONLY, pullOnly).remove(K_CONFIRM).remove(K_CONFIRM_KIND).commit()
     }
 
     /** Forget the cursor and retry list (e.g. after logging into another account) so the next run starts from the top. */
     fun resetProgress() {
         prefs.edit().remove(K_CURSOR).remove(K_RETRY).apply()
     }
+
+    /** What was last agreed with the server for each custom template and context (see [WebLibrarySync]). */
+    val library: WebLibraryState = object : WebLibraryState {
+        private val gson = com.google.gson.Gson()
+        private fun load(): MutableMap<String, LibraryMark> =
+            runCatching {
+                prefs.getString(K_LIBRARY, null)?.let { gson.fromJson(it, Array<Entry>::class.java).associate { e -> e.key to LibraryMark(e.version, e.hash) }.toMutableMap() }
+            }.getOrNull() ?: mutableMapOf()
+
+        private fun save(map: Map<String, LibraryMark>) {
+            prefs.edit().putString(K_LIBRARY, gson.toJson(map.map { (k, v) -> Entry(k, v.version, v.hash) })).apply()
+        }
+
+        override fun get(kind: String, id: String) = load()["$kind:$id"]
+        override fun put(kind: String, id: String, mark: LibraryMark) = save(load().also { it["$kind:$id"] = mark })
+        override fun remove(kind: String, id: String) = save(load().also { it.remove("$kind:$id") })
+    }
+
+    private class Entry(val key: String, val version: Int, val hash: String)
 
     // ───────────── WebStateStore ─────────────
 
@@ -121,6 +140,7 @@ class WebSyncStore(context: Context, db: IntelDesDatabase) : WebStateStore {
         private const val K_PROGRESS = "progress"
         private const val K_CURSOR = "cursor"
         private const val K_DELETES = "pending_deletes"
+        private const val K_LIBRARY = "library_marks"
         private const val K_RETRY = "retry_pulls"
     }
 }

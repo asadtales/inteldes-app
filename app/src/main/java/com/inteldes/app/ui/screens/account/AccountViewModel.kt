@@ -30,12 +30,26 @@ sealed interface ApproveUiState {
     data object Done : ApproveUiState
 }
 
+/** Marks a claim code that is really the one-time code of a browser login. */
+const val APP_LOGIN_PREFIX = "app_"
+
 class AccountViewModel(private val account: AccountService) : ViewModel() {
     val session: StateFlow<Session?> = account.session
     val endedByServer: StateFlow<Boolean> = account.endedByServer
     val deviceName: String get() = account.deviceName
 
     // ───────────────────────── login ─────────────────────────
+
+    private val _providers = MutableStateFlow(com.inteldes.app.data.server.Providers())
+    val providers: StateFlow<com.inteldes.app.data.server.Providers> = _providers
+
+    init { viewModelScope.launch { _providers.value = account.providers() } }
+
+    /** Opens the server's own Google / portal login in the browser via [open]; the secrets stay on the server. */
+    fun startExternalLogin(provider: String, open: (String) -> Unit) {
+        val url = account.beginAppLogin(provider)
+        if (url == null) _login.value = LoginUiState(error = "Login lewat browser belum tersedia di perangkat ini.") else open(url)
+    }
 
     private val _login = MutableStateFlow(LoginUiState())
     val login: StateFlow<LoginUiState> = _login
@@ -76,7 +90,8 @@ class AccountViewModel(private val account: AccountService) : ViewModel() {
         _claim.value = ClaimUiState.Working
         viewModelScope.launch {
             _claim.value = try {
-                ClaimUiState.Ready(account.claim(code))
+                // "app_<code>" comes from a Google / portal login in the browser, a plain code from a QR.
+                ClaimUiState.Ready(if (code.startsWith(APP_LOGIN_PREFIX)) account.exchangeAppLogin(code.removePrefix(APP_LOGIN_PREFIX)) else account.claim(code))
             } catch (e: Exception) {
                 ClaimUiState.Failed(userMessage(e))
             }

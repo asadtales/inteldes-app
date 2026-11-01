@@ -140,6 +140,19 @@ class ContextDetailViewModel(
         }
     }
 
+    /** Removes one recording from this context; [onDone] says whether its text section was found and removed too. */
+    fun removeRecording(recordingId: String, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            flush()
+            val removedText = contexts.removeRecording(contextId, recordingId)
+            val text = contexts.get(contextId)?.text.orEmpty()
+            lastSaved = text
+            draft.value = text
+            _state.update { it.copy(draft = text, saved = true) }
+            onDone(removedText)
+        }
+    }
+
     // ───────────────────────── AI ─────────────────────────
 
     fun ask(question: String) {

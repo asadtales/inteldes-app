@@ -47,6 +47,28 @@ class WebApiTest {
     private val recording = WebRecordingInput("Rapat", "Musdes", 1_000L, 60, null, "audio/mp4", "RAW", 0, "CLOUD", "builtin_standard", "Notulensi Standar", null, null, null, null, null, null, null, null)
 
     @Test
+    fun aShareLinkIsMadeWithTheChosenOptionsAndItsRelativeUrlBecomesAbsolute() {
+        respond { json(201, """{"id":"s1","includeTranscript":true,"includeAudio":false,"createdAt":5,"expiresAt":null,"revokedAt":null,"downloadCount":0,"url":"/s/TOKEN123"}""") }
+        val made = runBlocking { api().createShare("r1", includeTranscript = true, includeAudio = false, expiresInDays = null) }
+        val req = seen.single()
+        assertEquals("POST", req.method)
+        assertEquals("/v1/recordings/r1/shares", req.path)
+        val body = req.body.readUtf8()
+        assertTrue(body.contains("\"includeTranscript\":true") && body.contains("\"includeAudio\":false"))
+        assertTrue(made.url.endsWith("/s/TOKEN123") && made.url.startsWith("http"))
+        assertEquals(null, made.expiresAt)
+    }
+
+    @Test
+    fun sharesOfARecordingTheServerDoesNotKnowAreNone_andRevokingIsADelete() {
+        respond { r -> if (r.method == "DELETE") MockResponse().setResponseCode(204) else json(404, """{"error":{"code":"not_found","message":"x"}}""") }
+        assertTrue(runBlocking { api().listShares("r1") }.isEmpty())
+        runBlocking { api().revokeShare("s1") }
+        assertEquals("/v1/shares/s1", seen.last().path)
+        assertEquals("DELETE", seen.last().method)
+    }
+
+    @Test
     fun putSendsAQuotedIfMatchAndTheBearerTokenAndNeverTheWorkingStatus() {
         respond { json(200, """{"id":"r1","title":"Rapat","kind":"Musdes","createdAt":1000,"durationSec":60,"audioMimeType":"audio/mp4","status":"RAW","speakerCount":0,"engine":"CLOUD","templateId":"builtin_standard","templateName":"x","version":4,"transcriptVersion":0,"notesVersion":0,"updatedAt":1}""") }
         val saved = runBlocking { api().putRecording("r1", recording, 3) }

@@ -144,15 +144,20 @@ class WebSyncEngine(
     private val store: WebStateStore,
     private val gson: Gson = Gson(),
     private val pullOnly: Boolean = false,
+    /** Recordings the user keeps out of the sync: neither sent nor merged with what the server holds. Asked once per run. */
+    private val excluded: () -> Set<String> = { emptySet() },
 ) {
+    private var skipped: Set<String> = emptySet()
+
     suspend fun run(progress: (String) -> Unit = {}): WebSyncReport {
         val report = WebSyncReport()
+        skipped = excluded()
         progress("Kategori…")
         guarded(report, "kategori") { syncCategories() }
         if (!pullOnly) guarded(report, "hapus") { flushDeletes(report) }
         progress("Mengambil perubahan dari server…")
         pull(report)
-        val ids = if (pullOnly) emptyList() else local.recordingIds()
+        val ids = if (pullOnly) emptyList() else local.recordingIds().filter { it !in skipped }
         ids.forEachIndexed { i, id ->
             progress("Mengirim rekaman ${i + 1}/${ids.size}")
             guarded(report, id) { pushOne(id, report) }
@@ -224,6 +229,7 @@ class WebSyncEngine(
 
     private suspend fun pullRecording(id: String, report: WebSyncReport) {
         if (id in store.pendingDeletes()) return                    // deleted on this phone, the server doesn't know yet: don't bring it back
+        if (id in skipped && local.exists(id)) { store.removeRetry(id); return }   // the user keeps this one out of the sync
         val server = remote.getAggregate(id)
         if (server == null) { store.removeRetry(id); return }
         if (server.recording.deletedAt != null) { report.ignoredServerDeletes++; store.removeRetry(id); return }
@@ -321,9 +327,7 @@ class WebSyncEngine(
                 photosHash = if (children) prior?.photosHash.orEmpty() else h?.photos.orEmpty(),
                 // The server dropped an audio it used to hold (retention): remember it, so the phone's copy is not sent back.
                 audioSha = sha ?: if ((prior ?: store.get(id))?.audioSha != null) AUDIO_PURGED else null, audioLen = file?.length() ?: 0,
-                pushedMarksJson = gson.toJson(
-                    (marksOf(prior?.pushedMarksJson) + server.marks.filter { it.deletedAt == null } + (after?.marks ?: emptyList())).distinctBy { it.id },
-                ),
+                pushedMarksJson = gson.toJson(agreedMarks(marksOf(prior?.pushedMarksJson), server.marks, after?.marks ?: emptyList())),
                 pushedPhotosJson = gson.toJson(
                     (photosOf(prior?.pushedPhotosJson) + server.photos.filter { it.deletedAt == null }).distinctBy { it.id },
                 ),
@@ -370,19 +374,41 @@ class WebSyncEngine(
                 marksHash = if (clean && h != null) h.marks else st.marksHash,
                 chatHash = if (clean && h != null) h.chat else st.chatHash,
                 photosHash = if (clean && h != null) h.photos else st.photosHash,
-                pushedMarksJson = gson.toJson((marksOf(st.pushedMarksJson) + server.marks.filter { it.deletedAt == null } + (after?.marks ?: emptyList())).distinctBy { it.id }),
+                pushedMarksJson = gson.toJson(agreedMarks(marksOf(st.pushedMarksJson), incoming.marks, after?.marks ?: emptyList())),
                 pushedPhotosJson = gson.toJson((photosOf(st.pushedPhotosJson) + server.photos.filter { it.deletedAt == null }).distinctBy { it.id }),
             ),
         )
         return true
     }
 
-    /** Server marks minus the ones both sides had at the last sync that the phone has since deleted. */
+    /**
+     * Server marks minus the ones both sides had at the last sync that the phone has since deleted, and minus the
+     * ones the phone has since RENAMED (the phone wins; its label goes up with the next push). A rename made only
+     * on the web does come down.
+     */
     private fun keptMarks(server: WebAggregate, prior: WebState?, phone: LocalAggregate): List<WebMark> {
         if (prior == null) return server.marks
-        val known = marksOf(prior.pushedMarksJson).map { it.id }.toSet()
-        val here = phone.marks.map { it.id }.toSet()
-        return server.marks.filter { it.id !in known || it.id in here || it.deletedAt != null }
+        val agreed = marksOf(prior.pushedMarksJson).associateBy { it.id }
+        val mine = phone.marks.associateBy { it.id }
+        val here = mine.keys
+        return server.marks.filter { it.id !in agreed || it.id in here || it.deletedAt != null }.filterNot { s ->
+            val m = mine[s.id]
+            val a = agreed[s.id]
+            s.deletedAt == null && m != null && a != null && m.label != a.label
+        }
+    }
+
+    /**
+     * What both sides agreed on after this round: the earlier agreement, with the labels the web changed (and the
+     * phone accepted) brought up to date, plus marks only the phone has. A mark the phone renamed and has not sent
+     * yet keeps its OLD agreed label, so it still counts as edited on the phone.
+     */
+    private fun agreedMarks(old: List<WebMark>, accepted: List<WebMark>, phone: List<WebMark>): List<WebMark> {
+        val out = LinkedHashMap<String, WebMark>()
+        old.forEach { out[it.id] = it }
+        accepted.filter { it.deletedAt == null }.forEach { out[it.id] = it }
+        phone.forEach { out.putIfAbsent(it.id, it) }
+        return out.values.toList()
     }
 
     private fun keptPhotos(server: WebAggregate, prior: WebState?, phone: LocalAggregate): List<WebPhoto> {

@@ -15,3 +15,7 @@ local.properties
 # secrets embedded into the APK at build time
 .env
 .env.txt
+
+# local copies of a phone (never commit)
+real_inteldes.db
+real_prefs.bin

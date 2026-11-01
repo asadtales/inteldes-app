@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -66,6 +68,10 @@ fun SettingsScreen(
     val sync by vm.sync.collectAsStateWithLifecycle()
     val serverSession by vm.serverSession.collectAsStateWithLifecycle()
     val webState by vm.webSyncState.collectAsStateWithLifecycle()
+    val choice by vm.syncChoice.collectAsStateWithLifecycle()
+    val serverAi by vm.serverAi.collectAsStateWithLifecycle()
+    LaunchedEffect(serverSession) { vm.refreshServerAi() }
+    var pickingSync by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
     fun authFailure(e: Exception) {
@@ -128,6 +134,7 @@ fun SettingsScreen(
                     onWebSync = vm::setWebSync, onWebSyncNow = vm::webSyncNow, onConfirmOrg = vm::confirmOrgSwitch,
                     onDeclineOrg = vm::declineOrgSwitch, onAllowPush = vm::allowPush,
                 )
+                if (webState.enabled) SyncChoiceRow(choice, "web", onClick = { pickingSync = true })
             }
         }
 
@@ -194,6 +201,7 @@ fun SettingsScreen(
                 "${s.provider.label.substringBefore(" (")} · ${s.density.label} · ${s.outputLanguage.label} · ${state.defaultTemplateName}",
                 open == "ai", onToggle = { toggle("ai") },
             ) {
+                serverAi?.let { ServerAiCard(it, serverSession?.isPersonal == true) }
                 Text("Agent AI", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
                 Spacer(Modifier.height(8.dp))
                 ProviderRow("Otomatis (disarankan)", "IntelDes memilih agent sesuai panjang rapat dan sisa kuota.", s.provider == AiProvider.AUTO) { vm.setProvider(AiProvider.AUTO) }
@@ -237,14 +245,14 @@ fun SettingsScreen(
                 HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
                 if (state.advancedOpen) {
                     Column(modifier = Modifier.background(IdColor.Neutral100).padding(14.dp)) {
-                        KeySlot("API key Gemini", state.keys.geminiEmbedded, state.keys.geminiKey, vm::saveGeminiKey)
+                        ApiKeyField("API key Gemini", state.keys.geminiKey, vm::saveGeminiKey)
                         Spacer(Modifier.height(14.dp))
-                        KeySlot("API key Claude", state.keys.claudeEmbedded, state.keys.claudeKey, vm::saveClaudeKey)
+                        ApiKeyField("API key Claude", state.keys.claudeKey, vm::saveClaudeKey)
                         Spacer(Modifier.height(14.dp))
-                        KeySlot("API key transkripsi awan (Deepgram)", state.keys.whisperEmbedded, state.keys.whisperKey, vm::saveWhisperKey)
+                        ApiKeyField("API key transkripsi awan (Deepgram)", state.keys.whisperKey, vm::saveWhisperKey)
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            "Kunci yang tertanam di aplikasi dipakai otomatis. Kunci yang diketik di sini disimpan terenkripsi di perangkat dan hanya dipakai bila aplikasi tidak membawa kunci itu.",
+                            "Aplikasi tidak membawa kunci apa pun. Kunci yang diketik di sini disimpan terenkripsi di perangkat ini dan hanya dipakai untuk memproses langsung dari HP, tanpa server.",
                             color = IdColor.Neutral700, fontSize = 11.5.sp, lineHeight = 16.sp,
                         )
                     }
@@ -266,6 +274,7 @@ fun SettingsScreen(
                     onToggleAuto = { vm.setAutoSync(!sync.autoSync) },
                     onToggleWifi = { vm.setWifiOnly(!sync.wifiOnly) },
                 )
+                if (sync.connected) SyncChoiceRow(choice, "drive", autoOff = !sync.autoSync, onClick = { pickingSync = true })
             }
         }
 
@@ -279,6 +288,9 @@ fun SettingsScreen(
         }
     }
 
+    if (pickingSync) {
+        SyncPickerDialog(choice, onToggle = vm::setSynced, onAll = vm::setAllSynced, onDismiss = { pickingSync = false })
+    }
     if (state.rosterDialogOpen) {
         SpeakerRosterDialog(
             roster = state.settings.speakerRoster,
@@ -536,19 +548,6 @@ private fun DriveButton(label: String, filled: Boolean, enabled: Boolean = true,
 
 /** A key that ships inside the app needs no input; otherwise the usual entry field is shown. */
 @Composable
-private fun KeySlot(label: String, embedded: Boolean, current: String, onSave: (String) -> Unit) {
-    if (embedded) {
-        Column {
-            Text(label, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
-            Spacer(Modifier.height(3.dp))
-            Text("Sudah tertanam di aplikasi — tidak perlu diisi.", color = IdColor.Neutral700, fontSize = 12.sp)
-        }
-    } else {
-        ApiKeyField(label, current, onSave = onSave)
-    }
-}
-
-@Composable
 private fun AccountSection(
     session: com.inteldes.app.data.server.Session?,
     web: WebSyncUi,
@@ -751,6 +750,16 @@ private fun AboutSection() {
         Text("Perekam rapat dan penyusun notulensi untuk pemerintahan desa.", color = IdColor.Neutral700, fontSize = 12.sp, lineHeight = 17.sp)
         Spacer(Modifier.height(12.dp))
         AboutLine("Versi", "${com.inteldes.app.BuildConfig.VERSION_NAME} (build ${com.inteldes.app.BuildConfig.VERSION_CODE})")
+        AboutLine(
+            "Sumber",
+            "commit ${com.inteldes.app.BuildConfig.BUILD_COMMIT}" +
+                if (com.inteldes.app.BuildConfig.BUILD_DIRTY) " + perubahan yang belum di-commit (build uji, bukan rilis)" else " (sesuai commit)",
+        )
+        AboutLine(
+            "Dibangun",
+            java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale("id", "ID")).format(java.util.Date(com.inteldes.app.BuildConfig.BUILD_TIME_MS)),
+        )
+        AboutLine("Kunci AI", "tidak ada di dalam aplikasi")
         AboutLine("Pengembang", "Asterix Inovasi Teknologi")
         AboutLine("Server web", com.inteldes.app.BuildConfig.SERVER_URL.removePrefix("https://"))
         Spacer(Modifier.height(14.dp))
@@ -758,12 +767,13 @@ private fun AboutSection() {
         Spacer(Modifier.height(6.dp))
         listOf(
             "Rekaman, transkrip, notulensi, foto, dan penanda disimpan di HP ini. Data hanya keluar dari HP bila Anda menjalankan fitur yang memerlukannya, seperti di bawah.",
-            "Transkripsi awan mengirim audio rekaman ke penyedia layanan transkripsi (Deepgram). Transkripsi on-device tidak mengirim audio ke mana pun.",
+            "Transkripsi awan mengirim audio rekaman ke penyedia layanan transkripsi (Deepgram). Transkripsi on-device tidak mengirim audio ke mana pun. Bila Anda memilih \"Proses di server\", audio dan teks rapat dikirim ke server IntelDes, yang memprosesnya dengan kunci milik server dan dibatasi paket kuota akun Anda.",
             "Penyusunan notulensi dan Tanya AI mengirim teks transkrip ke penyedia AI yang dipilih (Google Gemini atau Anthropic Claude).",
             "Sinkron ke web mengirim rekaman, notulensi, foto, dan penanda ke server IntelDes untuk akun yang sedang masuk. Sinkron Google Drive menyimpan salinan di Drive milik akun Google Anda.",
-            "Menghapus rekaman di HP ikut menghapus salinannya di server web dan Drive bila sinkron itu aktif. Rekaman yang dihapus di web tidak dihapus dari HP.",
-            "Kunci API yang Anda ketik disimpan terenkripsi di perangkat. Sesi login disimpan terenkripsi dan tidak ikut cadangan Android.",
+            "Menghapus rekaman di HP ikut menghapus salinannya di server web dan Drive bila sinkron itu aktif. Rekaman yang dihapus di web tidak dihapus dari HP. Template dan konteks yang dihapus di HP ikut dihapus di server.",
+            "Kunci API yang Anda ketik disimpan terenkripsi di perangkat. Sesi login disimpan terenkripsi dan tidak ikut cadangan Android. Aplikasi ini tidak membawa kunci AI di dalamnya, dan login Google atau portal dilakukan di browser lewat server (aplikasi tidak menyimpan kunci Google).",
             "Hasil transkripsi dan notulensi dibuat otomatis oleh AI dan bisa keliru, terutama nama, angka, dan istilah setempat. Periksa dan koreksi sebelum dipakai sebagai dokumen resmi.",
+            "Tautan bagikan bersifat publik: siapa pun yang memegangnya bisa mengunduh notulensi (dan transkrip atau audio bila disertakan) tanpa masuk, sampai tautan dicabut atau kedaluwarsa.",
             "Anda bertanggung jawab atas izin merekam dan kerahasiaan isi rapat, serta atas siapa yang diberi akses ke tautan bagikan atau akun web.",
         ).forEach { line ->
             Row(Modifier.padding(bottom = 7.dp)) {
@@ -783,4 +793,112 @@ private fun AboutLine(label: String, value: String) {
         Text(value, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
     }
     HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
+}
+
+/** One line under a sync card: how many recordings take part, and the way into the picker. */
+@Composable
+private fun SyncChoiceRow(choice: SyncChoiceUi, target: String, autoOff: Boolean = false, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp)) {
+        HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("Rekaman yang ikut sinkron", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                Text(
+                    "${choice.included} dari ${choice.recordings.size} rekaman" +
+                        if (autoOff) " · sinkron otomatis mati: hanya yang dicentang diproses saat Anda menekan SINKRONKAN SEKARANG" else "",
+                    color = IdColor.Neutral700, fontSize = 11.5.sp, lineHeight = 16.sp,
+                )
+            }
+            Text("PILIH ›", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        }
+    }
+}
+
+/** Checklist of this phone's recordings; unchecked ones are kept out of both the Drive and the web sync. */
+@Composable
+private fun SyncPickerDialog(choice: SyncChoiceUi, onToggle: (String, Boolean) -> Unit, onAll: (Boolean) -> Unit, onDismiss: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rekaman yang ikut sinkron", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+        text = {
+            Column {
+                Text(
+                    "Yang dicentang ikut sinkron ke Google Drive dan ke web. Yang tidak dicentang tetap hanya di HP ini: tidak dikirim dan tidak ditimpa dari server. " +
+                        "Rekaman yang sudah terlanjur terkirim tetap ada di server.",
+                    color = IdColor.Neutral700, fontSize = 11.5.sp, lineHeight = 16.sp,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row {
+                    Text("PILIH SEMUA", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.clickable { onAll(true) }.padding(vertical = 6.dp, horizontal = 2.dp))
+                    Spacer(Modifier.width(18.dp))
+                    Text("KOSONGKAN", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.clickable { onAll(false) }.padding(vertical = 6.dp, horizontal = 2.dp))
+                }
+                HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
+                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                    items(choice.recordings, key = { it.id }) { rec ->
+                        val on = rec.id !in choice.excluded
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable { onToggle(rec.id, !on) }.padding(vertical = 9.dp),
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.size(20.dp).background(if (on) IdColor.Accent else IdColor.Neutral200),
+                            ) { if (on) Text("✓", color = IdColor.White, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(rec.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                                Text(
+                                    java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale("id", "ID")).format(java.util.Date(rec.createdAt)) +
+                                        " · " + com.inteldes.app.ui.util.formatMmSs(rec.durationSec),
+                                    color = IdColor.Neutral600, fontSize = 10.5.sp,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { Text("SELESAI", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable(onClick = onDismiss).padding(10.dp)) },
+    )
+}
+
+/** Read-only: which AI key the SERVER uses for this account and how much of its quota is left. */
+@Composable
+private fun ServerAiCard(view: com.inteldes.app.data.server.ServerSettingsView, personal: Boolean) {
+    val access = view.aiAccess ?: return
+    val platform = access.source == "platform"
+    fun of(u: com.inteldes.app.data.server.AiUsage) = "${u.used} dari ${u.limit ?: "tanpa batas"}"
+    val dateFormat = java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale("id", "ID"))
+    Column(modifier = Modifier.fillMaxWidth().background(IdColor.Neutral100).padding(14.dp)) {
+        Text("KUNCI AI DI SERVER", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
+        Spacer(Modifier.height(4.dp))
+        Text(if (platform) "Kunci IntelDes" else "Kunci milik ${if (personal) "akun ini" else "organisasi"}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        view.ai?.let { ready ->
+            Text(
+                "Siap: " + listOf("Transkripsi awan" to ready.deepgram, "Gemini" to ready.gemini, "Claude" to ready.claude)
+                    .joinToString(" · ") { (name, ok) -> name + if (ok) " ✓" else " ✗" },
+                color = IdColor.Neutral700, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        if (platform) {
+            Text(
+                "Paket: " + (access.plan?.name?.takeIf { it.isNotBlank() } ?: "bawaan sistem"),
+                fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, modifier = Modifier.padding(top = 2.dp),
+            )
+            access.minutes?.let { Text("Menit audio: " + (if (it.limit == null) "${it.used} terpakai (tanpa batas)" else of(it)), color = IdColor.Neutral700, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)) }
+            Text("Pemrosesan: ${of(access.jobs)}  ·  Pertanyaan AI: ${of(access.asks)}", color = IdColor.Neutral700, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 2.dp))
+            access.resetsAt?.let { Text("Kuota pulih ${dateFormat.format(java.util.Date(it))}", color = IdColor.Neutral700, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)) }
+        } else {
+            Text(
+                "Tanpa paket. Pagar 24 jam terakhir: pemrosesan ${of(access.jobs)}, pertanyaan AI ${of(access.asks)}.",
+                color = IdColor.Neutral700, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Text(
+            "Diatur di web (Pengaturan > Kunci AI), bukan di aplikasi. Kolom kunci di bawah hanya dipakai bila memproses langsung dari HP tanpa server.",
+            color = IdColor.Neutral600, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 6.dp),
+        )
+    }
+    Spacer(Modifier.height(14.dp))
 }

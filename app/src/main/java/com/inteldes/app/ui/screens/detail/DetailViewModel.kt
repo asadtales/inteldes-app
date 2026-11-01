@@ -30,7 +30,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -85,7 +87,98 @@ class DetailViewModel(
     init {
         viewModelScope.launch {
             val recording = repository.observeRecording(recordingId).first()
-            recording?.audioFilePath?.let { player.load(it) }
+            recording?.audioFilePath?.let { player.load(it, recording.durationSec) }
+        }
+    }
+
+    private val app get() = appContext.applicationContext as com.inteldes.app.IntelDesApp
+
+    /** True while an unfinished trim of this recording is saved (marks its scissors button). */
+    val hasTrimDraft: StateFlow<Boolean> = app.trimDrafts.ids.map { recordingId in it }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    fun trimDraft(durationSec: Int) = app.trimDrafts.get(recordingId, durationSec)
+    fun saveTrimDraft(draft: com.inteldes.app.data.audio.TrimDraft?) {
+        if (draft == null) app.trimDrafts.clear(recordingId) else app.trimDrafts.put(recordingId, draft)
+    }
+
+    /** Progress or failure of this recording's processing on the server, if one was started. */
+    val serverJob: StateFlow<com.inteldes.app.data.web.ServerJob?> =
+        app.serverJobs.jobs.map { it[recordingId] }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Can this recording be processed with the server's keys, and is that the way to go because the phone has none of its own? */
+    fun serverOption(hasAudio: Boolean): com.inteldes.app.data.web.ServerOption {
+        val reason = com.inteldes.app.data.web.ServerProcessor.unavailableReason(
+            session = app.accountService.session.value, webSyncOn = app.webSyncStore.enabled, pullOnly = app.webSyncStore.pullOnly,
+            recordingExcluded = recordingId in app.syncExclusions.snapshot(), hasAudio = hasAudio,
+        )
+        val lacks = com.inteldes.app.data.web.ServerProcessor.phoneLacksKeys(
+            hasDeepgram = securePrefs.effectiveWhisperCloudKey != null, hasGemini = securePrefs.effectiveGeminiKey != null,
+            hasClaude = securePrefs.effectiveClaudeKey != null, needsTranscription = hasAudio,
+        )
+        return com.inteldes.app.data.web.ServerOption(reason == null, reason, preferred = lacks)
+    }
+
+    // ───────────────────────── public share links ─────────────────────────
+
+    private val _share = MutableStateFlow(com.inteldes.app.ui.components.ShareUi(open = false))
+    val share: StateFlow<com.inteldes.app.ui.components.ShareUi> = _share
+
+    /** Opens the share dialog: says why sharing is impossible right now, or lists the links that already exist. */
+    fun openShare() {
+        val reason = com.inteldes.app.data.web.ServerProcessor.unavailableReason(
+            app.accountService.session.value, app.webSyncStore.enabled, app.webSyncStore.pullOnly, recordingId in app.syncExclusions.snapshot(), hasAudio = true,
+        )
+        if (reason != null) { _share.value = com.inteldes.app.ui.components.ShareUi(reason = reason); return }
+        _share.value = com.inteldes.app.ui.components.ShareUi(loading = true)
+        viewModelScope.launch {
+            _share.value = try {
+                com.inteldes.app.ui.components.ShareUi(items = com.inteldes.app.data.web.WebApi(app.accountService.api).listShares(recordingId))
+            } catch (e: Exception) {
+                com.inteldes.app.ui.components.ShareUi(error = com.inteldes.app.data.server.userMessage(e))
+            }
+        }
+    }
+
+    fun closeShare() { _share.value = com.inteldes.app.ui.components.ShareUi(open = false) }
+
+    /** Sends this recording to the server if it is not there yet, then asks for a link. The link's secret part is shown once. */
+    fun createShare(includeTranscript: Boolean, includeAudio: Boolean, expiresInDays: Int?) {
+        _share.value = _share.value.copy(busy = true, error = null, newUrl = null)
+        viewModelScope.launch {
+            try {
+                val created = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val api = com.inteldes.app.data.web.WebApi(app.accountService.api)
+                    val everyId = app.database.recordingDao().ids().toSet()
+                    com.inteldes.app.data.work.WebSyncWorker.mutex.withLock {
+                        com.inteldes.app.data.web.WebSyncEngine(com.inteldes.app.data.web.RoomWebLocal(appContext, app.database), api, app.webSyncStore, excluded = { everyId - recordingId }).run()
+                    }
+                    api.createShare(recordingId, includeTranscript, includeAudio, expiresInDays)
+                }
+                val list = runCatching { com.inteldes.app.data.web.WebApi(app.accountService.api).listShares(recordingId) }.getOrDefault(listOf(created.info()))
+                _share.value = com.inteldes.app.ui.components.ShareUi(items = list, newUrl = created.url)
+            } catch (e: Exception) {
+                _share.value = _share.value.copy(busy = false, error = com.inteldes.app.data.server.userMessage(e))
+            }
+        }
+    }
+
+    fun revokeShare(shareId: String) {
+        viewModelScope.launch {
+            try {
+                val api = com.inteldes.app.data.web.WebApi(app.accountService.api)
+                api.revokeShare(shareId)
+                _share.value = _share.value.copy(items = api.listShares(recordingId), error = null)
+            } catch (e: Exception) {
+                _share.value = _share.value.copy(error = com.inteldes.app.data.server.userMessage(e))
+            }
+        }
+    }
+
+    /** Hands the recording to the server (its keys, its quota). The result comes back by itself when it is done. */
+    fun startServerProcessing() {
+        app.serverJobs.running(recordingId, "Menyiapkan…")
+        viewModelScope.launch {
+            repository.setEngine(recordingId, com.inteldes.app.data.model.WhisperEngine.CLOUD)       // the server transcribes CLOUD recordings with its own key
+            com.inteldes.app.data.work.ServerProcessWorker.enqueue(appContext, recordingId)
         }
     }
 
@@ -110,19 +203,84 @@ class DetailViewModel(
         viewModelScope.launch { repository.setLocation(recordingId, name) }
     }
 
+    fun renameMark(mark: com.inteldes.app.data.model.RecordingMark, label: String) {
+        viewModelScope.launch { repository.renameMark(mark.id, label) }
+    }
+
     fun deleteMark(mark: com.inteldes.app.data.model.RecordingMark) {
         viewModelScope.launch { repository.deleteMark(mark, recordingId) }
     }
 
-    /** Cuts [startSec, endSec) into a new recording; the original is never touched. */
-    fun trimToNewRecording(startSec: Int, endSec: Int, onResult: (Result<String>) -> Unit) {
+    /** Speech ranges of this recording found on the phone (see [com.inteldes.app.data.audio.SilenceDetector]). */
+    fun detectSilence(noiseDb: Int, minSilenceSec: Int, onResult: (Result<List<com.inteldes.app.data.audio.TimeRange>>) -> Unit) {
         viewModelScope.launch {
             val result = runCatching {
-                val source = repository.getRecording(recordingId) ?: error("Rekaman tidak ditemukan.")
-                repository.createTrimmedRecording(source, startSec, endSec, java.io.File(appContext.filesDir, "recordings"))
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val rec = repository.getRecording(recordingId) ?: error("Rekaman tidak ditemukan.")
+                    val file = rec.audioFilePath?.let { java.io.File(it) }?.takeIf { it.exists() } ?: error("Berkas audio tidak ditemukan di perangkat.")
+                    com.inteldes.app.data.audio.SilenceDetector.analyze(file, rec.durationSec, noiseDb, minSilenceSec)
+                }
             }
             onResult(result)
         }
+    }
+
+    /**
+     * Saves the [keep] stretches as a new recording (the original is never touched), applies the chosen
+     * template and engine, and reports the new id — or the failure — through [onResult].
+     */
+    fun trimToNewRecording(
+        keep: List<com.inteldes.app.data.audio.TimeRange>,
+        title: String,
+        template: com.inteldes.app.data.model.NoteTemplate,
+        engine: com.inteldes.app.data.model.WhisperEngine,
+        onResult: (Result<String>) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val result = runCatching {
+                val source = repository.getRecording(recordingId) ?: error("Rekaman tidak ditemukan.")
+                try {
+                    repository.createTrimmedRecording(source, keep, java.io.File(appContext.filesDir, "recordings"), title, template, engine)
+                } catch (e: com.inteldes.app.data.audio.AudioTrimmer.UnsupportedFormatException) {
+                    trimOnServer(source, keep, title, template, engine, e)       // mp3, wav…: the phone cannot cut these, the server can
+                }
+            }.onSuccess { app.trimDrafts.clear(recordingId) }
+            onResult(result)
+        }
+    }
+
+    /**
+     * Cuts a recording the phone cannot cut itself (mp3, wav…) on the server: sends this one recording, has the
+     * server cut it into a new recording, and brings that back. Needs the same things as processing on the server.
+     */
+    private suspend fun trimOnServer(
+        source: com.inteldes.app.data.model.Recording, keep: List<com.inteldes.app.data.audio.TimeRange>, title: String,
+        template: com.inteldes.app.data.model.NoteTemplate, engine: com.inteldes.app.data.model.WhisperEngine,
+        phoneError: Exception,
+    ): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val supported = com.inteldes.app.data.audio.AudioFormats.table.filter { it.onPhone }.joinToString(", ") { it.label }
+        val reason = com.inteldes.app.data.web.ServerProcessor.unavailableReason(
+            app.accountService.session.value, app.webSyncStore.enabled, app.webSyncStore.pullOnly, recordingId in app.syncExclusions.snapshot(), source.audioFilePath != null,
+        )
+        if (!com.inteldes.app.data.audio.AudioFormats.serverCanCut(source.audioMimeType)) {
+            throw java.io.IOException("Format ${source.audioMimeType} tidak bisa dipotong, di HP maupun di server. Yang bisa di HP: $supported. Server juga: MP3, WAV.")
+        }
+        if (reason != null) throw java.io.IOException("${phoneError.message} Bisa dipotong lewat server, tetapi: $reason")
+        val api = com.inteldes.app.data.web.WebApi(app.accountService.api)
+        val local = com.inteldes.app.data.web.RoomWebLocal(appContext, app.database)
+        val everyId = app.database.recordingDao().ids().toSet()
+        // 1) send just this recording, 2) have the server cut it, 3) receive what is new (the cut recording).
+        com.inteldes.app.data.work.WebSyncWorker.mutex.withLock {
+            com.inteldes.app.data.web.WebSyncEngine(local, api, app.webSyncStore, excluded = { everyId - recordingId }).run()
+        }
+        val newId = api.trimRecording(recordingId, keep.map { it.start to it.end }, title, source.kind)
+        com.inteldes.app.data.work.WebSyncWorker.mutex.withLock {
+            com.inteldes.app.data.web.WebSyncEngine(local, api, app.webSyncStore, excluded = { everyId }).run()
+        }
+        if (!local.exists(newId)) throw java.io.IOException("Hasil potong sudah dibuat di server tetapi belum sampai ke HP. Sinkronkan lagi dari Pengaturan.")
+        repository.setTemplate(newId, template)
+        repository.setEngine(newId, engine)
+        newId
     }
 
     override fun onCleared() {

@@ -60,9 +60,9 @@ class WebSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                 store.needsOrgConfirm = null
                 store.needsOrgKind = null
                 val api = WebApi(account.api)
-                val engine = WebSyncEngine(RoomWebLocal(applicationContext, app.database), api, store, pullOnly = store.pullOnly)
+                val engine = WebSyncEngine(RoomWebLocal(applicationContext, app.database), api, store, pullOnly = store.pullOnly, excluded = app.syncExclusions::snapshot)
                 val report = engine.run { store.progress = it }
-                val lib = com.inteldes.app.data.web.WebLibrarySync(com.inteldes.app.data.web.RoomWebLibrary(app.database), api, pullOnly = store.pullOnly).run()
+                val lib = com.inteldes.app.data.web.WebLibrarySync(com.inteldes.app.data.web.RoomWebLibrary(app.database), api, pullOnly = store.pullOnly, state = store.library).run()
                 report.pushed += lib.pushed
                 report.pulled += lib.pulled
                 report.failed += lib.failed
@@ -127,7 +127,7 @@ class WebSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
         private const val NOTIFICATION_ID = 3003
         private const val MAX_ATTEMPTS = 4
         private const val UNIQUE_NAME = "web_sync"
-        private val mutex = Mutex()
+        internal val mutex = Mutex()
 
         /** Queues a run; does nothing unless the user switched the web sync on and is signed in. */
         fun enqueue(context: Context) {

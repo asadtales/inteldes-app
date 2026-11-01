@@ -47,7 +47,11 @@ fun TranscribeOptionsDialog(
     marks: List<RecordingMark>,
     onDismiss: () -> Unit,
     onConfirm: (WhisperEngine, Int?, Int?) -> Unit,
+    /** When given, the dialog also offers processing on the server with the server's keys (see ServerOption). */
+    serverOption: com.inteldes.app.data.web.ServerOption? = null,
+    onConfirmServer: () -> Unit = {},
 ) {
+    var onServer by remember { mutableStateOf(serverOption?.available == true && serverOption.preferred) }
     var selectedEngine by remember { mutableStateOf(currentEngine) }
     var partial by remember { mutableStateOf(false) }
     var startText by remember { mutableStateOf(formatMmSs(0)) }
@@ -63,6 +67,23 @@ fun TranscribeOptionsDialog(
             // Scrolls on small screens / with the keyboard open instead of pushing the
             // Batal/PROSES buttons off-screen.
             Column(modifier = Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+                if (serverOption != null) {
+                    Text("DIPROSES DI", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.6.sp)
+                    Spacer(Modifier.height(6.dp))
+                    EnginePickRow("HP ini", "Memakai kunci API yang Anda isi sendiri di Pengaturan.", !onServer) { onServer = false }
+                    Spacer(Modifier.height(8.dp))
+                    EnginePickRow(
+                        "Server IntelDes",
+                        serverOption.reason ?: "Memakai kunci milik server, dibatasi kuota atau paket akun Anda. Seluruh rekaman diproses.",
+                        onServer && serverOption.available,
+                    ) { if (serverOption.available) onServer = true }
+                    if (serverOption.preferred && serverOption.available) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("HP ini belum punya kunci API, jadi server dipilih.", color = IdColor.Neutral600, fontSize = 10.5.sp)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
+                if (onServer) return@Column
                 EnginePickRow("On-device", "Tanpa internet, satu pembicara, gratis.", selectedEngine == WhisperEngine.ON_DEVICE) { selectedEngine = WhisperEngine.ON_DEVICE }
                 Spacer(Modifier.height(8.dp))
                 EnginePickRow("Awan", "Lebih akurat, ada label pembicara, pakai kuota API.", selectedEngine == WhisperEngine.CLOUD) { selectedEngine = WhisperEngine.CLOUD }
@@ -103,6 +124,7 @@ fun TranscribeOptionsDialog(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .clickable(enabled = canConfirm) {
+                        if (onServer) { onConfirmServer(); return@clickable }
                         onConfirm(selectedEngine, if (partial) range?.first else null, if (partial) range?.second else null)
                     }
                     .padding(10.dp),

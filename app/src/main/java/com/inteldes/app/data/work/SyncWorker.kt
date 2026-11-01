@@ -42,7 +42,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
                 val auth = DriveAuth(applicationContext)
                 val client = DriveClient(tokenProvider = { auth.tokenOrThrow() })
                 val local = RoomSyncLocal(applicationContext, app.database, app.repository)
-                val report = SyncEngine(local, client, store).run { store.setRunning(true, it) }
+                val report = SyncEngine(local, client, store, excluded = app.syncExclusions::snapshot).run { store.setRunning(true, it) }
                 store.finish(if (report.failed > 0) "${report.failed} item gagal: ${report.firstError}" else null)
                 if (report.failed > 0 && runAttemptCount < MAX_ATTEMPTS - 1) Result.retry() else Result.success()
             } catch (e: CancellationException) {

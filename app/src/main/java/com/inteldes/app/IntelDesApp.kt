@@ -28,8 +28,11 @@ class IntelDesApp : Application() {
     val settingsStore: AppSettingsStore by lazy { AppSettingsStore(this) }
     val audioRecorder: AudioRecorderManager by lazy { AudioRecorderManager(this) }
     val syncStore: SyncStore by lazy { SyncStore(this) }
+    val trimDrafts: com.inteldes.app.data.audio.TrimDrafts by lazy { com.inteldes.app.data.audio.TrimDrafts(this) }
+    val serverJobs: com.inteldes.app.data.web.ServerJobs by lazy { com.inteldes.app.data.web.ServerJobs() }
+    val syncExclusions: com.inteldes.app.data.sync.SyncExclusions by lazy { com.inteldes.app.data.sync.SyncExclusions(this) }
     val sessionStore: com.inteldes.app.data.server.SessionStore by lazy { com.inteldes.app.data.server.SessionStore(this) }
-    val accountService: com.inteldes.app.data.server.AccountService by lazy { com.inteldes.app.data.server.AccountService(sessionStore) }
+    val accountService: com.inteldes.app.data.server.AccountService by lazy { com.inteldes.app.data.server.AccountService(sessionStore, appLogin = com.inteldes.app.data.server.AppLoginPending(this)) }
     val driveAuth: DriveAuth by lazy { DriveAuth(this) }
 
     override fun onCreate() {

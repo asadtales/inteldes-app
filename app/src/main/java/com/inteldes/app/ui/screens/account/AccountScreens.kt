@@ -75,6 +75,11 @@ fun LoginScreen(
     val vm: AccountViewModel = viewModel(factory = factory)
     val state by vm.login.collectAsStateWithLifecycle()
     val ended by vm.endedByServer.collectAsStateWithLifecycle()
+    val providers by vm.providers.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val openBrowser: (String) -> Unit = { url ->
+        runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+    }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
@@ -116,6 +121,21 @@ fun LoginScreen(
             HorizontalDivider(modifier = Modifier.weight(1f), color = IdColor.Neutral300)
         }
         Spacer(Modifier.height(18.dp))
+        if (providers.external) {
+            if (providers.google) {
+                BigButton("MASUK DENGAN GOOGLE", filled = false, enabled = !state.loading) { vm.startExternalLogin("google", openBrowser) }
+                Spacer(Modifier.height(10.dp))
+            }
+            if (providers.sso) {
+                BigButton("MASUK DENGAN PORTAL SSO", filled = false, enabled = !state.loading) { vm.startExternalLogin("sso", openBrowser) }
+                Spacer(Modifier.height(10.dp))
+            }
+            Text(
+                "Login dilakukan di browser lewat server IntelDes; aplikasi tidak menyimpan kunci Google atau portal.",
+                color = IdColor.Neutral600, fontSize = 11.sp, lineHeight = 15.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+        }
         BigButton("PINDAI QR DARI WEB", filled = false, enabled = !state.loading, onClick = onScanQr)
         if (canSkip) {
             Spacer(Modifier.height(22.dp))
@@ -248,7 +268,7 @@ fun ClaimScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(IdColor.Bg).padding(24.dp)) {
         Spacer(Modifier.height(24.dp))
-        Text("Tambah HP ini", fontWeight = FontWeight.ExtraBold, fontSize = 26.sp)
+        Text(if (code.startsWith(APP_LOGIN_PREFIX)) "Masuk ke IntelDes" else "Tambah HP ini", fontWeight = FontWeight.ExtraBold, fontSize = 26.sp)
         Spacer(Modifier.height(16.dp))
         when (val s = state) {
             ClaimUiState.Working -> Text("Menghubungkan ke server…", color = IdColor.Neutral700, fontSize = 14.sp)

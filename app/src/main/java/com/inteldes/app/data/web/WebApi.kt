@@ -95,6 +95,56 @@ class WebApi(
         }
     }
 
+    /**
+     * Cuts the recording on the server (ffmpeg, no re-encoding) into a NEW recording and returns its id. The source
+     * must already be there with its audio. [ranges] are (startSec, endSec) pairs, joined in order.
+     */
+    suspend fun trimRecording(id: String, ranges: List<Pair<Int, Int>>, title: String, kind: String): String {
+        val body = JsonObject().apply {
+            add("ranges", gson.toJsonTree(ranges.map { mapOf("startSec" to it.first, "endSec" to it.second) }))
+            addProperty("title", title.take(300))
+            addProperty("kind", kind.take(100))
+            addProperty("copyMarks", true)
+        }
+        val answer = text(Request.Builder().url("$base/v1/recordings/$id/trim").post(gson.toJson(body).toRequestBody(JSON)).build())
+        return com.google.gson.JsonParser.parseString(answer).asJsonObject["id"].asString
+    }
+
+    // ───────────────────────── public share links ─────────────────────────
+
+    /** Makes a public download link of the recording's notulensi; the recording must already be on the server. */
+    suspend fun createShare(recordingId: String, includeTranscript: Boolean, includeAudio: Boolean, expiresInDays: Int?): CreatedShare {
+        val body = JsonObject().apply {
+            addProperty("includeTranscript", includeTranscript)
+            addProperty("includeAudio", includeAudio)
+            if (expiresInDays != null) addProperty("expiresInDays", expiresInDays) else add("expiresInDays", com.google.gson.JsonNull.INSTANCE)
+        }
+        val answer = text(Request.Builder().url("$base/v1/recordings/$recordingId/shares").post(gson.toJson(body).toRequestBody(JSON)).build())
+        return gson.fromJson(answer, CreatedShare::class.java).let { it.copy(url = it.absoluteUrl(base)) }
+    }
+
+    /** The links of a recording (without their secret part). A recording the server does not have has none. */
+    suspend fun listShares(recordingId: String): List<ShareLinkInfo> =
+        try {
+            val json = com.google.gson.JsonParser.parseString(text(get("/v1/recordings/$recordingId/shares"))).asJsonObject
+            gson.fromJson(json["items"], Array<ShareLinkInfo>::class.java).toList()
+        } catch (e: ServerException) {
+            if (e.status == 404) emptyList() else throw e
+        }
+
+    suspend fun revokeShare(shareId: String) {
+        text(Request.Builder().url("$base/v1/shares/$shareId").delete().build())
+    }
+
+    /** The account's server settings (AI key source and quota); the app only reads them. */
+    suspend fun settings(): com.inteldes.app.data.server.ServerSettingsView =
+        gson.fromJson(text(get("/v1/settings")), com.inteldes.app.data.server.ServerSettingsView::class.java)
+
+    /** Asks the server to transcribe and write the notulensi (202 = queued). 429 / 422 arrive as [ServerException] with the server's wording. */
+    suspend fun processRecording(id: String, body: JsonObject) {
+        text(Request.Builder().url("$base/v1/recordings/$id/process").post(gson.toJson(body).toRequestBody(JSON)).build())
+    }
+
     override suspend fun deleteRecording(id: String) {
         text(Request.Builder().url("$base/v1/recordings/$id").delete().build())
     }
@@ -115,6 +165,28 @@ class WebApi(
         val body = JsonObject().apply { addProperty("name", name); addProperty("description", description); add("sections", gson.toJsonTree(sections)) }
         text(put("/v1/templates/$id", gson.toJson(body), 0))
     }
+
+    override suspend fun updateTemplate(id: String, name: String, description: String, sections: List<WebTemplateSection>, ifMatch: Int): Int {
+        val body = JsonObject().apply { addProperty("name", name); addProperty("description", description); add("sections", gson.toJsonTree(sections)) }
+        return versionOf(text(put("/v1/templates/$id", gson.toJson(body), ifMatch)), ifMatch + 1)
+    }
+
+    override suspend fun deleteTemplate(id: String) {
+        text(Request.Builder().url("$base/v1/templates/$id").delete().build())
+    }
+
+    override suspend fun updateContext(id: String, name: String, text: String, sources: List<WebContextSource>, ifMatch: Int): Int {
+        val body = JsonObject().apply { addProperty("name", name); addProperty("text", text); add("sources", gson.toJsonTree(sources)) }
+        return versionOf(text(put("/v1/contexts/$id", gson.toJson(body), ifMatch)), ifMatch + 1)
+    }
+
+    override suspend fun deleteContext(id: String) {
+        text(Request.Builder().url("$base/v1/contexts/$id").delete().build())
+    }
+
+    /** The `version` of a PUT answer, or [fallback] when the answer does not carry one. */
+    private fun versionOf(answer: String, fallback: Int): Int =
+        runCatching { com.google.gson.JsonParser.parseString(answer).asJsonObject["version"].asInt }.getOrDefault(fallback)
 
     override suspend fun listContexts(): List<WebContext> {
         val json = com.google.gson.JsonParser.parseString(text(get("/v1/contexts"))).asJsonObject
@@ -154,7 +226,8 @@ class WebApi(
     /** tus 1.0.0: create, then send pieces; after a dropped connection, ask the server where it got to and continue. */
     override suspend fun uploadBlob(sha256: String, mimeType: String, file: File) {
         val length = file.length()
-        val meta = "sha256 ${b64(sha256)},filetype ${b64(mimeType)}"
+        // Android and browsers name the same container differently; the server accepts one name for each (415 otherwise).
+        val meta = "sha256 ${b64(sha256)},filetype ${b64(com.inteldes.app.data.audio.AudioFormats.normalizeContainerMime(mimeType))}"
         val create = Request.Builder().url("$base/v1/uploads")
             .header("Tus-Resumable", "1.0.0").header("Upload-Length", length.toString()).header("Upload-Metadata", meta)
             .post(ByteArray(0).toRequestBody(null)).build()

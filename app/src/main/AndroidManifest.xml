@@ -49,6 +49,14 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="inteldes.at-in.site" android:pathPrefix="/pair" />
             </intent-filter>
+            <!-- The browser handing back a Google / portal login (the server redirects here with a one-time code).
+                 The code is useless without this phone's secret verifier, and the state is checked in code. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="inteldes" android:host="auth" android:path="/callback" />
+            </intent-filter>
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />

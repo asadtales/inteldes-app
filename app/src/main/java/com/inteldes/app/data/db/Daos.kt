@@ -82,6 +82,13 @@ interface RecordingMarkDao {
 
     @Query("DELETE FROM recording_marks WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    /** Also pins the web id: a derived id includes the label, so without it a rename would look like a new mark. */
+    @Query("UPDATE recording_marks SET label = :label, uuid = :uuid WHERE id = :id")
+    suspend fun rename(id: Long, label: String, uuid: String)
+
+    @Query("SELECT * FROM recording_marks WHERE id = :id")
+    suspend fun get(id: Long): RecordingMarkEntity?
 }
 
 @Dao
@@ -215,13 +222,19 @@ interface ContextDao {
 
     @Query("DELETE FROM knowledge_contexts WHERE id = :id")
     suspend fun delete(id: String)
+
+    @Query("DELETE FROM context_sources WHERE contextId = :contextId")
+    suspend fun deleteSources(contextId: String)
+
+    @Query("DELETE FROM context_sources WHERE contextId = :contextId AND recordingId = :recordingId")
+    suspend fun deleteSource(contextId: String, recordingId: String)
 }
 
 data class SourceCount(val contextId: String, val n: Int)
 
 @Dao
 interface ChatDao {
-    @Query("SELECT * FROM chat_messages WHERE recordingId = :recordingId ORDER BY orderIndex")
+    @Query("SELECT * FROM chat_messages WHERE recordingId = :recordingId ORDER BY orderIndex, createdAt, id")
     fun observeMessages(recordingId: String): Flow<List<ChatMessageEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -230,7 +243,7 @@ interface ChatDao {
     @Query("SELECT COUNT(*) FROM chat_messages WHERE recordingId = :recordingId")
     suspend fun count(recordingId: String): Int
 
-    @Query("SELECT * FROM chat_messages WHERE recordingId = :recordingId ORDER BY orderIndex")
+    @Query("SELECT * FROM chat_messages WHERE recordingId = :recordingId ORDER BY orderIndex, createdAt, id")
     suspend fun list(recordingId: String): List<ChatMessageEntity>
 }
 

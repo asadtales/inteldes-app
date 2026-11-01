@@ -39,6 +39,8 @@ fun AppNavGraph(
     recordShortcutToken: Int = 0,
     pairLink: com.inteldes.app.data.server.PairingLink? = null,
     onPairLinkHandled: () -> Unit = {},
+    appLoginUri: String? = null,
+    onAppLoginHandled: () -> Unit = {},
 ) {
     val appFactory = remember { AppViewModelFactory(app) }
 
@@ -72,6 +74,20 @@ fun AppNavGraph(
                 navController.navigate(Routes.Claim.of(link.code)) { launchSingleTop = true }
         }
         onPairLinkHandled()
+    }
+
+    // The browser handed back a Google / portal login (inteldes://auth/callback). Only the login this phone started counts.
+    val appContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(appLoginUri) {
+        val uri = appLoginUri ?: return@LaunchedEffect
+        when (val cb = account.readAppLoginCallback(uri)) {
+            is com.inteldes.app.data.server.AppLoginCallback.Code ->
+                navController.navigate(Routes.Claim.of(com.inteldes.app.ui.screens.account.APP_LOGIN_PREFIX + cb.code)) { launchSingleTop = true }
+            is com.inteldes.app.data.server.AppLoginCallback.Error ->
+                android.widget.Toast.makeText(appContext, cb.message, android.widget.Toast.LENGTH_LONG).show()
+            null -> Unit
+        }
+        onAppLoginHandled()
     }
 
     NavHost(navController = navController, startDestination = startDestination) {

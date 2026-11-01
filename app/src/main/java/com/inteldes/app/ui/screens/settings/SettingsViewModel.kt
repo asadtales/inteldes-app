@@ -27,9 +27,6 @@ data class KeyFields(
     val geminiKey: String,
     val claudeKey: String,
     val whisperKey: String,
-    val geminiEmbedded: Boolean = false,
-    val claudeEmbedded: Boolean = false,
-    val whisperEmbedded: Boolean = false,
 )
 
 data class SettingsUiState(
@@ -53,6 +50,13 @@ data class WebSyncUi(
     val pullOnly: Boolean = false,
 )
 
+data class SyncChoiceUi(
+    val recordings: List<com.inteldes.app.data.model.Recording> = emptyList(),
+    val excluded: Set<String> = emptySet(),
+) {
+    val included: Int get() = recordings.count { it.id !in excluded }
+}
+
 class SettingsViewModel(
     private val appContext: Context,
     private val store: AppSettingsStore,
@@ -62,7 +66,21 @@ class SettingsViewModel(
     private val driveAuth: DriveAuth,
     private val account: com.inteldes.app.data.server.AccountService,
     private val webSync: com.inteldes.app.data.web.WebSyncStore,
+    recordings: com.inteldes.app.data.repository.RecordingRepository,
+    private val exclusions: com.inteldes.app.data.sync.SyncExclusions,
 ) : ViewModel() {
+
+    /** Which recordings take part in the sync (Drive and web), for the "Pilih rekaman" list. */
+    val syncChoice: StateFlow<SyncChoiceUi> = combine(recordings.observeRecordings(), exclusions.ids) { list, excluded ->
+        SyncChoiceUi(list, excluded)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SyncChoiceUi())
+
+    fun setSynced(id: String, synced: Boolean) = exclusions.setExcluded(id, !synced)
+
+    /** Checks or unchecks every recording at once. */
+    fun setAllSynced(synced: Boolean) {
+        exclusions.replace(if (synced) emptySet() else syncChoice.value.recordings.map { it.id }.toSet())
+    }
 
     /** The IntelDes server login of this install (null = local mode). */
     val serverSession: StateFlow<com.inteldes.app.data.server.Session?> = account.session
@@ -81,6 +99,15 @@ class SettingsViewModel(
             kotlinx.coroutines.delay(1500)
         }
     }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), WebSyncUi())
+
+    /** The server's AI key source, readiness and 24-hour usage for the signed-in account (null: not signed in / unreachable). */
+    private val _serverAi = MutableStateFlow<com.inteldes.app.data.server.ServerSettingsView?>(null)
+    val serverAi: StateFlow<com.inteldes.app.data.server.ServerSettingsView?> = _serverAi
+
+    fun refreshServerAi() {
+        if (!account.loggedIn) { _serverAi.value = null; return }
+        viewModelScope.launch { _serverAi.value = runCatching { account.api.settings() }.getOrNull() }
+    }
 
     fun setWebSync(on: Boolean) {
         webSync.enabled = on
@@ -149,9 +176,6 @@ class SettingsViewModel(
                 geminiKey = securePrefs.geminiApiKey.orEmpty(),
                 claudeKey = securePrefs.claudeApiKey.orEmpty(),
                 whisperKey = securePrefs.whisperCloudApiKey.orEmpty(),
-                geminiEmbedded = securePrefs.hasEmbeddedGemini,
-                claudeEmbedded = securePrefs.hasEmbeddedClaude,
-                whisperEmbedded = securePrefs.hasEmbeddedWhisperCloud,
             ),
             rosterDialogOpen = rosterOpen,
             defaultTemplateName = choices.default.name,

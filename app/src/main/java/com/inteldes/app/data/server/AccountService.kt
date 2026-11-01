@@ -26,6 +26,7 @@ fun userMessage(e: Throwable): String = when (e) {
 class AccountService(
     private val store: SessionStore,
     private val serverUrl: String = BuildConfig.SERVER_URL,
+    private val appLogin: AppLoginPending? = null,
 ) {
     val session: StateFlow<Session?> = store.session
     val endedByServer: StateFlow<Boolean> = store.endedByServer
@@ -50,6 +51,25 @@ class AccountService(
 
     /** Alur B, step 1: claim the QR. The result is NOT saved yet: the user confirms the account first ([commit]) or backs out ([discard]). */
     suspend fun claim(code: String): LoginResult = api.claim(code, deviceName)
+
+    /** The ways in the server offers; Google / portal buttons need [Providers.external]. */
+    suspend fun providers(): Providers = api.providers() ?: Providers()
+
+    /** The URL that starts a Google ("google") or portal ("sso") login in the browser; null when this install cannot remember the login. */
+    fun beginAppLogin(provider: String): String? = appLogin?.begin(serverUrl, provider)
+
+    /** Reads what the browser handed back through `inteldes://auth/callback`; null when it is not the login this phone started. */
+    fun readAppLoginCallback(uri: String): AppLoginCallback? = AppLoginLink.parse(uri, appLogin?.current()?.state)
+
+    /** Step 1 of a browser login: trade the one-time code for tokens. Like [claim], NOT saved until the user confirms the account. */
+    suspend fun exchangeAppLogin(code: String): LoginResult {
+        val pending = appLogin?.current() ?: throw ServerException(400, "login_expired", "Login lewat browser sudah kedaluwarsa. Mulai lagi dari layar masuk.")
+        return try {
+            api.exchangeAppLogin(code, pending.verifier, deviceName)
+        } finally {
+            appLogin.clear()                                     // single use either way
+        }
+    }
 
     suspend fun commit(result: LoginResult) = replaceSession(result)
 

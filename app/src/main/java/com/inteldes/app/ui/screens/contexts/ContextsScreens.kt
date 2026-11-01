@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.inteldes.app.data.model.ContextSource
 import com.inteldes.app.data.model.ContextSourceKind
 import com.inteldes.app.data.model.KnowledgeContext
 import com.inteldes.app.data.model.Recording
@@ -237,6 +238,8 @@ fun ContextDetailScreen(
     var renaming by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var removing by remember { mutableStateOf<ContextSource?>(null) }
+    val appContext = androidx.compose.ui.platform.LocalContext.current
     DisposableEffect(Unit) { onDispose { vm.flush() } }
 
     val context = state.context
@@ -266,7 +269,7 @@ fun ContextDetailScreen(
         HorizontalDivider(thickness = 2.dp, color = IdColor.Divider)
 
         when (tab) {
-            ContextTab.TEXT -> ContextTextTab(state, vm, onAdd = { adding = true }, modifier = Modifier.weight(1f))
+            ContextTab.TEXT -> ContextTextTab(state, vm, onAdd = { adding = true }, onRemove = { removing = it }, modifier = Modifier.weight(1f))
             ContextTab.ASK -> ContextAskTab(state, vm, modifier = Modifier.weight(1f))
         }
     }
@@ -290,6 +293,30 @@ fun ContextDetailScreen(
             onConfirm = { _, ids, kind -> adding = false; vm.addRecordings(ids, kind) },
         )
     }
+    removing?.let { src ->
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text("Keluarkan dari konteks?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "“${src.recordingTitle}” dikeluarkan dari konteks ini, begitu juga bagian teksnya di dalam isi konteks. " +
+                        "Rekaman dan notulensi aslinya tetap ada. Bagian yang Anda tulis sendiri tidak diubah.",
+                    color = IdColor.Neutral700, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+            },
+            confirmButton = {
+                Text("KELUARKAN", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable {
+                    removing = null
+                    vm.removeRecording(src.recordingId) { removedText ->
+                        if (!removedText) android.widget.Toast.makeText(
+                            appContext, "Bagian teksnya tidak ditemukan (mungkin sudah Anda ubah); hapus manual di isi konteks bila perlu.", android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }.padding(10.dp))
+            },
+            dismissButton = { Text("Batal", color = IdColor.Neutral700, modifier = Modifier.clickable { removing = null }.padding(10.dp)) },
+        )
+    }
     if (confirmDelete && context != null) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -302,7 +329,7 @@ fun ContextDetailScreen(
 }
 
 @Composable
-private fun ContextTextTab(state: ContextDetailState, vm: ContextDetailViewModel, onAdd: () -> Unit, modifier: Modifier = Modifier) {
+private fun ContextTextTab(state: ContextDetailState, vm: ContextDetailViewModel, onAdd: () -> Unit, onRemove: (ContextSource) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxSize()) {
         val sources = state.context?.sources.orEmpty()
         if (sources.isNotEmpty()) {
@@ -311,11 +338,17 @@ private fun ContextTextTab(state: ContextDetailState, vm: ContextDetailViewModel
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 sources.forEach { s ->
-                    Text(
-                        s.recordingTitle.take(28) + " · " + s.kind.label,
-                        fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = IdColor.Neutral800,
-                        modifier = Modifier.background(IdColor.Neutral100).padding(horizontal = 9.dp, vertical = 6.dp),
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.background(IdColor.Neutral100)) {
+                        Text(
+                            s.recordingTitle.take(28) + " · " + s.kind.label,
+                            fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = IdColor.Neutral800,
+                            modifier = Modifier.padding(start = 9.dp, top = 6.dp, bottom = 6.dp),
+                        )
+                        Text(
+                            "✕", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = IdColor.Accent,
+                            modifier = Modifier.clickable { onRemove(s) }.padding(horizontal = 10.dp, vertical = 6.dp),
+                        )
+                    }
                 }
             }
             HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)

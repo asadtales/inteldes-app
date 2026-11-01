@@ -20,14 +20,18 @@ class AudioPlayerManager {
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state
 
-    fun load(path: String) {
+    /**
+     * [fallbackDurationSec]: audio recorded in a browser (webm) carries no duration, so MediaPlayer says 0 and the
+     * slider cannot move; the recording's own length is used then.
+     */
+    fun load(path: String, fallbackDurationSec: Int = 0) {
         release()
         val mp = MediaPlayer()
         runCatching {
             mp.setDataSource(path)
             mp.prepare()
             player = mp
-            _state.value = PlaybackState(playing = false, positionSec = 0, durationSec = mp.duration / 1000, ready = true)
+            _state.value = PlaybackState(playing = false, positionSec = 0, durationSec = if (mp.duration > 0) mp.duration / 1000 else fallbackDurationSec, ready = true)
             mp.setOnCompletionListener {
                 _state.value = _state.value.copy(playing = false, positionSec = _state.value.durationSec)
                 tickJob?.cancel()
@@ -56,8 +60,8 @@ class AudioPlayerManager {
     /** Jumps [deltaSec] from the player's live position (negative = back), clamped to the recording. */
     fun skipBy(deltaSec: Int) {
         val mp = player ?: return
-        val durationMs = mp.duration
-        val target = (mp.currentPosition + deltaSec * 1000).coerceIn(0, durationMs)
+        val durationMs = if (mp.duration > 0) mp.duration else _state.value.durationSec * 1000
+        val target = (mp.currentPosition + deltaSec * 1000).coerceIn(0, durationMs.coerceAtLeast(0))
         mp.seekTo(target)
         _state.value = _state.value.copy(positionSec = target / 1000)
     }

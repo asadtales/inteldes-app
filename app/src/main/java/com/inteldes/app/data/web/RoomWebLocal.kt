@@ -148,6 +148,11 @@ class RoomWebLocal(context: Context, private val db: IntelDesDatabase) : WebLoca
             server.marks.filter { it.deletedAt == null && it.id !in markIds }.forEach {
                 db.recordingMarkDao().insert(RecordingMarkEntity(recordingId = id, timestampSec = it.timestampSec, label = it.label, createdAt = it.createdAt, uuid = it.id))
             }
+            // Renamed on the web: take the new label (the engine already left out the marks the phone renamed itself).
+            server.marks.filter { it.deletedAt == null }.forEach { s ->
+                val m = markIds[s.id] ?: return@forEach
+                if (m.label != s.label) db.recordingMarkDao().rename(m.id, s.label, s.id)
+            }
             server.marks.filter { it.deletedAt != null }.forEach { markIds[it.id]?.let { m -> db.recordingMarkDao().deleteById(m.id) } }
 
             val chatIds = db.chatDao().list(id).map { chatId(id, it) }.toSet()

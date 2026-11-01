@@ -79,6 +79,7 @@ internal fun NotesTab(
     onAddPhoto: (Uri, Boolean) -> Unit,
     onUpdateCaption: (Photo, String) -> Unit,
     onDeletePhoto: (Photo) -> Unit,
+    onShareLink: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showTemplatePicker by remember { mutableStateOf(false) }
@@ -205,6 +206,20 @@ internal fun NotesTab(
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
                     Text(
+                        "EKSPOR PDF",
+                        fontWeight = FontWeight.Bold, fontSize = 12.sp, color = IdColor.Text,
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(IdColor.Neutral100)
+                            .clickable {
+                                runCatching { NotulensiExporter.exportPdf(context, recording, notulensi, photos) }
+                                    .onSuccess { uri -> context.startActivity(NotulensiExporter.shareIntent(uri, "application/pdf")) }
+                                    .onFailure { android.widget.Toast.makeText(context, "Gagal membuat PDF: ${it.message}", android.widget.Toast.LENGTH_LONG).show() }
+                            }
+                            .padding(vertical = 12.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                    Text(
                         "EKSPOR WORD",
                         fontWeight = FontWeight.Bold, fontSize = 12.sp, color = IdColor.Text,
                         modifier = Modifier
@@ -222,6 +237,17 @@ internal fun NotesTab(
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
                 }
+                Text(
+                    "BAGIKAN LEWAT TAUTAN",
+                    fontWeight = FontWeight.Bold, fontSize = 12.sp, color = IdColor.Text,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                        .background(IdColor.Neutral100)
+                        .clickable(onClick = onShareLink)
+                        .padding(vertical = 12.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
             }
         }
     }

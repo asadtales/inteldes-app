@@ -1,6 +1,8 @@
 package com.inteldes.app.data.repository
 
 import com.inteldes.app.data.audio.AudioTrimmer
+import com.inteldes.app.data.audio.TimeRange
+import com.inteldes.app.data.audio.TrimPlan
 import com.inteldes.app.data.db.CategoryEntity
 import com.inteldes.app.data.db.ChatMessageEntity
 import com.inteldes.app.data.db.IntelDesDatabase
@@ -248,39 +250,48 @@ class RecordingRepository(private val db: IntelDesDatabase) {
     }
 
     /**
-     * "Potong & simpan": copies [startSec, endSec) of [source]'s audio into a brand-new
-     * recording (new file, new row), carrying over the marks that fall inside the range
-     * (shifted so they line up with the clip). The source recording and its file are only
-     * read, never modified — deleting either one later doesn't affect the other.
+     * Trim editor: copies the [keep] stretches of [source]'s audio, joined in order, into a brand-new
+     * recording (new file, new row), carrying over the marks that fall inside them (moved to where they
+     * land in the clip). The source recording and its file are only read, never modified — deleting either
+     * one later doesn't affect the other. The new recording starts RAW; the caller may choose its template
+     * and engine and start processing.
      */
-    suspend fun createTrimmedRecording(source: Recording, startSec: Int, endSec: Int, outputDir: File): String =
+    suspend fun createTrimmedRecording(
+        source: Recording,
+        keep: List<TimeRange>,
+        outputDir: File,
+        title: String = "${source.title} (hasil potong)",
+        template: NoteTemplate? = null,
+        engine: WhisperEngine = source.engine,
+    ): String =
         withContext(Dispatchers.IO) {
+            require(keep.isNotEmpty()) { "Tidak ada bagian yang disimpan." }
             val sourcePath = source.audioFilePath ?: throw IOException("Rekaman ini tidak punya berkas audio.")
             val sourceFile = File(sourcePath)
             if (!sourceFile.exists()) throw IOException("Berkas audio rekaman ini tidak ditemukan di perangkat.")
             outputDir.mkdirs()
-            val dest = File(outputDir, "trim_${System.currentTimeMillis()}.m4a")
-            AudioTrimmer.trim(sourceFile, dest, startSec, endSec)
+            // The new file keeps the source's kind of container: m4a stays m4a, a browser's webm stays webm.
+            val output = AudioTrimmer.outputFor(sourceFile)
+                ?: throw AudioTrimmer.UnsupportedFormatException("Format audio ini (${source.audioMimeType}) belum bisa dipotong di HP.")
+            val dest = File(outputDir, "trim_${System.currentTimeMillis()}.${output.extension}")
+            AudioTrimmer.trimRanges(sourceFile, dest, keep)
 
             val id = insertRecording(
-                title = "${source.title} (potongan ${formatMmSs(startSec)}–${formatMmSs(endSec)})",
+                title = title.ifBlank { "${source.title} (hasil potong)" },
                 kind = source.kind,
-                durationSec = endSec - startSec,
+                durationSec = TrimPlan.totalSec(keep),
                 audioFilePath = dest.absolutePath,
-                audioMimeType = "audio/mp4",
-                engine = source.engine,
-                templateId = source.templateId,
-                templateName = source.templateName,
+                audioMimeType = output.mimeType,
+                engine = engine,
+                templateId = template?.id ?: source.templateId,
+                templateName = template?.name ?: source.templateName,
                 location = source.locationName?.let { LocationInfo(it, source.latitude, source.longitude) },
             )
             val now = System.currentTimeMillis()
-            db.recordingMarkDao().observeForRecording(source.id).first()
-                .filter { it.timestampSec in startSec..endSec }
-                .forEach {
-                    db.recordingMarkDao().insert(
-                        RecordingMarkEntity(recordingId = id, timestampSec = it.timestampSec - startSec, label = it.label, createdAt = now),
-                    )
-                }
+            db.recordingMarkDao().observeForRecording(source.id).first().forEach { mark ->
+                val at = TrimPlan.remapMark(mark.timestampSec, keep) ?: return@forEach
+                db.recordingMarkDao().insert(RecordingMarkEntity(recordingId = id, timestampSec = at, label = mark.label, createdAt = now))
+            }
             id
         }
 
@@ -299,6 +310,18 @@ class RecordingRepository(private val db: IntelDesDatabase) {
 
     suspend fun addMark(recordingId: String, timestampSec: Int, label: String) {
         db.recordingMarkDao().insert(RecordingMarkEntity(recordingId = recordingId, timestampSec = timestampSec, label = label, createdAt = System.currentTimeMillis()))
+    }
+
+    /**
+     * Renames a mark. Its web id is fixed first (derived ids include the label), so the next sync sends the same
+     * mark with the new label instead of a second mark.
+     */
+    suspend fun renameMark(markId: Long, label: String) {
+        val clean = label.trim().take(300)
+        if (clean.isEmpty()) return
+        val m = db.recordingMarkDao().get(markId) ?: return
+        val id = m.uuid ?: com.inteldes.app.data.web.WebIds.forMark(m.recordingId, m.timestampSec.coerceAtLeast(0), m.label.take(300), m.createdAt)
+        db.recordingMarkDao().rename(markId, clean, id)
     }
 
     suspend fun deleteMark(mark: RecordingMark, recordingId: String) {

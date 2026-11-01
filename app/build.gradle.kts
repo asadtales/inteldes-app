@@ -4,27 +4,40 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+/** Output of a git command run in the repo, or "" when git is not there (a source archive, for instance). */
+fun git(vararg args: String): String = try {
+    ProcessBuilder("git", *args).directory(rootDir).redirectErrorStream(true).start().let { p ->
+        p.inputStream.bufferedReader().readText().trim().also { p.waitFor() }
+    }
+} catch (e: Exception) { "" }
+
+// What the "Tentang" screen tells the user about THIS build, so a build can always be traced to its source.
+val buildCommit: String = git("rev-parse", "--short=8", "HEAD").ifBlank { "tidak diketahui" }
+// True when tracked files differ from that commit: then the build is NOT exactly what the commit contains.
+val buildDirty: Boolean = try { ProcessBuilder("git", "diff", "--quiet", "HEAD").directory(rootDir).start().waitFor() != 0 } catch (e: Exception) { false }
 
 android {
     namespace = "com.inteldes.app"
     compileSdk = 34
 
+    // The exported Room schemas (app/schemas) double as test assets for the migration test.
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
     defaultConfig {
         applicationId = "com.inteldes.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "2.4.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        versionCode = 4
+        versionName = "2.5.0"
 
         // The IntelDes web/server this app can sign in to (login + QR pairing). HTTPS only.
         buildConfigField("String", "SERVER_URL", "\"https://inteldes.at-in.site\"")
-        // CUT-OVER KUNCI: kunci AI TIDAK BOLEH tertanam di APK (APK bisa dibongkar dan kuncinya dibaca siapa saja).
-        // Tiga field berikut sengaja KOSONG dan tidak lagi dibaca dari .env; hanya dipertahankan agar kode lama
-        // (SecurePrefs.hasEmbedded*/effective*Key) tetap terkompilasi. Hapus bersama kodenya saat pembersihan.
-        // Lihat docs/server/CUTOVER_KUNCI_APK.md.
-        buildConfigField("String", "EMBEDDED_GEMINI_KEY", "\"\"")
-        buildConfigField("String", "EMBEDDED_CLAUDE_KEY", "\"\"")
-        buildConfigField("String", "EMBEDDED_DEEPGRAM_KEY", "\"\"")
+        buildConfigField("String", "BUILD_COMMIT", "\"$buildCommit\"")
+        buildConfigField("boolean", "BUILD_DIRTY", buildDirty.toString())
+        buildConfigField("long", "BUILD_TIME_MS", "${System.currentTimeMillis()}L")
 
         // arm64-v8a covers virtually every real device sold since ~2017 (incl. the
         // Galaxy M51 this app is tested on); x86_64 is only here so the on-device
@@ -136,6 +149,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")

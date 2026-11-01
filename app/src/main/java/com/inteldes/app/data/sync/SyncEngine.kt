@@ -203,6 +203,8 @@ class SyncEngine(
     private val remote: SyncRemote,
     private val storage: SyncStateStorage,
     private val gson: Gson = Gson(),
+    /** Recordings the user keeps out of the sync: neither uploaded nor overwritten. Asked once per run. */
+    private val excluded: () -> Set<String> = { emptySet() },
 ) {
     suspend fun run(progress: (String) -> Unit = {}): SyncReport {
         val report = SyncReport()
@@ -243,7 +245,7 @@ class SyncEngine(
 
         // 3. Recordings.
         val localIds = local.recordingIds().toSet()
-        val all = (localIds + tree.recordingIds() - tombstones).sorted()
+        val all = (localIds + tree.recordingIds() - tombstones - excluded()).sorted()
         all.forEachIndexed { index, id ->
             progress("Sinkronisasi rekaman ${index + 1}/${all.size}")
             guarded(report, id) { syncOne(id, id in localIds, root, tree, recStates, report) }

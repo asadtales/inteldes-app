@@ -57,8 +57,19 @@ object ContextBuilder {
             }
         }.trim()
 
+    private const val SEPARATOR = "\n\n---\n\n"
+
     /** Sections for several recordings, separated by a rule so they stay distinguishable inside one document. */
-    fun join(sections: List<String>): String = sections.joinToString("\n\n---\n\n")
+    fun join(sections: List<String>): String = sections.joinToString(SEPARATOR)
+
+    /**
+     * [text] without the sections [section] wrote for [title] (each starts "## title — date"). Returns the
+     * text unchanged when none is found, e.g. because the user already edited that heading by hand.
+     */
+    fun withoutSection(text: String, title: String): String {
+        val heading = "## $title — "
+        return text.split(SEPARATOR).filterNot { it.trimStart().startsWith(heading) }.joinToString(SEPARATOR)
+    }
 }
 
 /** Saved knowledge contexts: merged, editable text built from one or more recordings. */
@@ -104,6 +115,21 @@ class ContextRepository(private val db: IntelDesDatabase, private val recordings
         val text = if (current.text.isBlank()) added else current.text.trimEnd() + "\n\n---\n\n" + added
         db.contextDao().updateText(contextId, text, now)
         db.contextDao().insertSources(sources)
+    }
+
+    /**
+     * Takes one recording out of a context: its link and, when it can still be recognised, its section of the
+     * merged text. Hand-written text elsewhere is kept. Returns true when the section was found and removed
+     * (false: only the link went away, the text has to be edited by hand).
+     */
+    suspend fun removeRecording(contextId: String, recordingId: String): Boolean {
+        val current = db.contextDao().getOne(contextId) ?: return false
+        val source = db.contextDao().sourcesOf(contextId).firstOrNull { it.recordingId == recordingId } ?: return false
+        val text = ContextBuilder.withoutSection(current.text, source.recordingTitle)
+        db.contextDao().deleteSource(contextId, recordingId)
+        if (text == current.text) return false
+        db.contextDao().updateText(contextId, text.trim(), System.currentTimeMillis())
+        return true
     }
 
     suspend fun updateText(id: String, text: String) = db.contextDao().updateText(id, text, System.currentTimeMillis())

@@ -21,7 +21,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * Exports a Notulensi to a structured .txt or .docx file in the app's cache dir
+ * Exports a Notulensi to a structured .txt, .docx or .pdf file in the app's cache dir
  * and returns a content:// Uri (via FileProvider) ready to share. The .docx embeds the
  * documentation photos; the .txt lists them by caption only.
  */
@@ -45,6 +45,13 @@ object NotulensiExporter {
     fun exportDocx(context: Context, recording: Recording, notulensi: Notulensi, photos: List<Photo> = emptyList()): Uri {
         val file = File(exportDir(context), "${safeFileName(recording.title)}.docx")
         writeDocx(file, recording, notulensi, photos)
+        return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    }
+
+    /** A4 PDF with the same content as the Word file (photos included). Written with Android's own PdfDocument, works offline. */
+    fun exportPdf(context: Context, recording: Recording, notulensi: Notulensi, photos: List<Photo> = emptyList()): Uri {
+        val file = File(exportDir(context), "${safeFileName(recording.title)}.pdf")
+        PdfExporter.write(file, recording, notulensi, photos)
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }
 

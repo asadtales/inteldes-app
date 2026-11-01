@@ -65,7 +65,7 @@ import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.data.model.TranscriptSegment
 import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.ui.components.TranscribeOptionsDialog
-import com.inteldes.app.ui.components.TrimAudioDialog
+import com.inteldes.app.ui.components.TrimEditor
 import com.inteldes.app.ui.components.KickerLabel
 import com.inteldes.app.ui.theme.IdColor
 import com.inteldes.app.ui.util.formatDuration
@@ -83,6 +83,9 @@ fun DetailScreen(
     val vm: DetailViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
     val playback by vm.playbackState.collectAsStateWithLifecycle()
+    val serverJob by vm.serverJob.collectAsStateWithLifecycle()
+    val hasTrimDraft by vm.hasTrimDraft.collectAsStateWithLifecycle()
+    val shareUi by vm.share.collectAsStateWithLifecycle()
     val onSeek: (Int) -> Unit = vm::seekPlayback
 
     androidx.compose.runtime.LaunchedEffect(initialTab) {
@@ -92,6 +95,7 @@ fun DetailScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showLocationEdit by remember { mutableStateOf(false) }
     var showTrim by remember { mutableStateOf(false) }
+    var trimFromSec by remember { mutableStateOf<Int?>(null) }
 
     Column(modifier = Modifier.fillMaxSize().background(IdColor.Bg)) {
         Column(modifier = Modifier.background(IdColor.Bg)) {
@@ -139,9 +143,12 @@ fun DetailScreen(
         val actions = PlayerActions(
             marks = state.marks,
             onShare = onShareAudio,
-            onTrim = { showTrim = true },
+            onTrim = { trimFromSec = null; showTrim = true },
+            hasTrimDraft = hasTrimDraft,
             onAddMark = vm::addMarkAtPlayback,
             onDeleteMark = vm::deleteMark,
+            onRenameMark = vm::renameMark,
+            onTrimFrom = { sec -> trimFromSec = sec; showTrim = true },
             onSkip = vm::skipPlayback,
         )
         when {
@@ -181,6 +188,9 @@ fun DetailScreen(
                 onStartProcessing = { engine, start, end ->
                     vm.startProcessing(engine, start, end) { id, tab, s, e -> onOpenProcessing(id, tab, s, e) }
                 },
+                serverJob = serverJob,
+                serverOptionOf = { vm.serverOption(recording.audioFilePath != null) },
+                onStartServer = vm::startServerProcessing,
                 actions = actions,
             )
             state.tab == DetailTab.NOTES -> NotesTab(
@@ -199,6 +209,7 @@ fun DetailScreen(
                 onAddPhoto = vm::addPhoto,
                 onUpdateCaption = vm::updatePhotoCaption,
                 onDeletePhoto = vm::deletePhoto,
+                onShareLink = vm::openShare,
                 modifier = Modifier.weight(1f),
             )
             state.tab == DetailTab.SCRIPT -> ScriptTab(
@@ -228,19 +239,47 @@ fun DetailScreen(
     if (showTrim) {
         val rec = state.recording
         val localContext = LocalContext.current
-        if (rec != null) {
-            TrimAudioDialog(
-                durationSec = if (playback.ready) playback.durationSec else rec.durationSec,
+        if (rec != null && state.templates.isNotEmpty()) {
+            TrimEditor(
+                durationSec = if (playback.ready && playback.durationSec > 0) playback.durationSec else rec.durationSec,
+                sourceTitle = rec.title,
                 marks = state.marks,
-                currentPositionSec = playback.positionSec,
+                playback = playback,
+                templates = state.templates,
+                defaultTemplateId = rec.templateId,
+                defaultEngine = rec.engine,
+                draft = vm.trimDraft(if (playback.ready && playback.durationSec > 0) playback.durationSec else rec.durationSec),
+                onDraftChange = vm::saveTrimDraft,
+                initialRange = trimFromSec?.let { from ->
+                    val total = if (playback.ready && playback.durationSec > 0) playback.durationSec else rec.durationSec
+                    // Like the web: a minute from the mark (to the next mark if that comes sooner), then adjustable.
+                    val next = state.marks.map { it.timestampSec }.filter { it > from }.minOrNull()
+                    com.inteldes.app.data.audio.TimeRange(from, minOf(next ?: Int.MAX_VALUE, from + 60, total))
+                },
+                onTogglePlay = vm::togglePlayback,
+                onSeek = onSeek,
+                onDetectSilence = { noiseDb, minSilence, onResult -> vm.detectSilence(noiseDb, minSilence, onResult) },
                 onDismiss = { showTrim = false },
-                onSave = { start, end, onResult -> vm.trimToNewRecording(start, end, onResult) },
-                onSaved = {
+                onSave = { keep, title, template, engine, onResult -> vm.trimToNewRecording(keep, title, template, engine, onResult) },
+                onSaved = { newId, processNow ->
                     showTrim = false
-                    android.widget.Toast.makeText(localContext, "Disimpan sebagai rekaman baru. Rekaman asli tidak berubah.", android.widget.Toast.LENGTH_LONG).show()
+                    if (processNow) {
+                        onOpenProcessing(newId, "script", null, null)
+                    } else {
+                        android.widget.Toast.makeText(localContext, "Disimpan sebagai rekaman baru. Rekaman asli tidak berubah.", android.widget.Toast.LENGTH_LONG).show()
+                    }
                 },
             )
         }
+    }
+
+    if (shareUi.open) {
+        com.inteldes.app.ui.components.ShareLinkDialog(
+            ui = shareUi,
+            onCreate = vm::createShare,
+            onRevoke = vm::revokeShare,
+            onDismiss = vm::closeShare,
+        )
     }
 
     if (showLocationEdit) {
@@ -304,8 +343,12 @@ private class PlayerActions(
     val marks: List<com.inteldes.app.data.model.RecordingMark>,
     val onShare: () -> Unit,
     val onTrim: () -> Unit,
+    val hasTrimDraft: Boolean,
     val onAddMark: () -> Unit,
     val onDeleteMark: (com.inteldes.app.data.model.RecordingMark) -> Unit,
+    val onRenameMark: (com.inteldes.app.data.model.RecordingMark, String) -> Unit,
+    /** Opens the trim editor with the stretch starting at this mark already picked. */
+    val onTrimFrom: (Int) -> Unit,
     val onSkip: (Int) -> Unit,
 )
 
@@ -328,6 +371,8 @@ private fun AudioPlayerBar(
     var dragPositionSec by remember { mutableStateOf<Int?>(null) }
     val shownPositionSec = dragPositionSec ?: playback.positionSec
     var markToDelete by remember { mutableStateOf<com.inteldes.app.data.model.RecordingMark?>(null) }
+    var markMenu by remember { mutableStateOf<com.inteldes.app.data.model.RecordingMark?>(null) }
+    var markToRename by remember { mutableStateOf<com.inteldes.app.data.model.RecordingMark?>(null) }
     val marks = actions?.marks.orEmpty()
     val duration = playback.durationSec.coerceAtLeast(1)
 
@@ -361,7 +406,7 @@ private fun AudioPlayerBar(
             Spacer(Modifier.weight(1f))
             if (actions != null) {
                 IconButton(onClick = actions.onTrim, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.ContentCut, contentDescription = "Potong audio", tint = IdColor.Neutral700, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Filled.ContentCut, contentDescription = if (actions.hasTrimDraft) "Potong audio (ada draf tersimpan)" else "Potong audio", tint = if (actions.hasTrimDraft) IdColor.Accent else IdColor.Neutral700, modifier = Modifier.size(20.dp))
                 }
                 IconButton(onClick = actions.onShare, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Filled.Share, contentDescription = "Bagikan audio", tint = IdColor.Neutral700, modifier = Modifier.size(20.dp))
@@ -416,7 +461,7 @@ private fun AudioPlayerBar(
             Spacer(Modifier.height(6.dp))
             if (marks.isEmpty()) {
                 Text(
-                    "Belum ada penanda. Tandai saat merekam (tombol di layar rekam atau notifikasi), atau di sini sambil mendengarkan.",
+                    "Belum ada penanda. Tandai saat merekam (tombol di layar rekam atau notifikasi), atau di sini sambil mendengarkan. Tahan penanda untuk mengubah nama, memotong dari sana, atau menghapus.",
                     color = IdColor.Neutral600,
                     fontSize = 11.sp,
                     lineHeight = 15.sp,
@@ -432,7 +477,7 @@ private fun AudioPlayerBar(
                     marks.forEach { m ->
                         val active = m.timestampSec == activeSec
                         Text(
-                            com.inteldes.app.ui.util.formatMmSs(m.timestampSec),
+                            markChipText(m),
                             color = if (active) IdColor.White else IdColor.Neutral800,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 11.5.sp,
@@ -441,7 +486,7 @@ private fun AudioPlayerBar(
                                 .background(if (active) IdColor.Accent else IdColor.Neutral200)
                                 .combinedClickable(
                                     onClick = { onSeek(m.timestampSec) },
-                                    onLongClick = { markToDelete = m },
+                                    onLongClick = { markMenu = m },
                                 )
                                 .padding(horizontal = 11.dp, vertical = 7.dp),
                         )
@@ -449,6 +494,51 @@ private fun AudioPlayerBar(
                 }
             }
         }
+    }
+
+    markMenu?.let { mark ->
+        AlertDialog(
+            onDismissRequest = { markMenu = null },
+            title = { Text("Penanda ${com.inteldes.app.ui.util.formatMmSs(mark.timestampSec)}", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(mark.label, color = IdColor.Neutral700, fontSize = 12.5.sp)
+                    Spacer(Modifier.height(8.dp))
+                    listOf(
+                        "UBAH NAMA" to { markToRename = mark },
+                        "POTONG DARI SINI" to { actions?.onTrimFrom?.invoke(mark.timestampSec) },
+                        "HAPUS" to { markToDelete = mark },
+                    ).forEach { (label, run) ->
+                        Text(
+                            label, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                            color = if (label == "HAPUS") IdColor.Accent else IdColor.Text,
+                            modifier = Modifier.fillMaxWidth().clickable { markMenu = null; run() }.padding(vertical = 12.dp),
+                        )
+                        HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { Text("Tutup", color = IdColor.Neutral700, modifier = Modifier.clickable { markMenu = null }.padding(10.dp)) },
+        )
+    }
+
+    markToRename?.let { mark ->
+        var name by remember(mark.id) { mutableStateOf(mark.label) }
+        AlertDialog(
+            onDismissRequest = { markToRename = null },
+            title = { Text("Nama penanda", fontWeight = FontWeight.Bold) },
+            text = { com.inteldes.app.ui.components.IdTextField(value = name, onValueChange = { name = it }, placeholder = "Contoh: Keputusan anggaran") },
+            confirmButton = {
+                Text(
+                    "SIMPAN",
+                    color = if (name.isNotBlank()) IdColor.Accent else IdColor.Neutral400,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable(enabled = name.isNotBlank()) { actions?.onRenameMark?.invoke(mark, name); markToRename = null }.padding(10.dp),
+                )
+            },
+            dismissButton = { Text("Batal", color = IdColor.Neutral700, modifier = Modifier.clickable { markToRename = null }.padding(10.dp)) },
+        )
     }
 
     markToDelete?.let { mark ->
@@ -493,10 +583,15 @@ private fun NotDoneState(
     onSeek: (Int) -> Unit,
     onOpenProcessing: () -> Unit,
     onStartProcessing: (WhisperEngine, Int?, Int?) -> Unit,
+    serverJob: com.inteldes.app.data.web.ServerJob?,
+    serverOptionOf: () -> com.inteldes.app.data.web.ServerOption,
+    onStartServer: () -> Unit,
     actions: PlayerActions,
 ) {
     var showEnginePicker by remember { mutableStateOf(false) }
-    val failed = errorMessage != null
+    val serverRunning = serverJob?.running == true
+    val shownError = if (serverJob != null && !serverJob.running) serverJob.message else errorMessage
+    val failed = shownError != null
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Status + player scroll together; the action stays pinned at the bottom instead of
@@ -517,6 +612,7 @@ private fun NotDoneState(
                 Text(
                     when {
                         failed -> "Pemrosesan gagal"
+                        serverRunning -> "Diproses di server"
                         statusIsWorking -> "Sedang diproses"
                         else -> "Belum diproses"
                     },
@@ -525,7 +621,7 @@ private fun NotDoneState(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    errorMessage ?: "Transkrip dan notulensi akan muncul di sini setelah selesai. Tandai poin penting atau potong audio dulu kalau perlu.",
+                    shownError ?: serverJob?.message ?: "Transkrip dan notulensi akan muncul di sini setelah selesai. Tandai poin penting atau potong audio dulu kalau perlu.",
                     color = IdColor.Neutral700,
                     fontSize = 12.5.sp,
                     lineHeight = 18.sp,
@@ -554,6 +650,7 @@ private fun NotDoneState(
                     // whatever engine happened to be set before. Only skipped when genuinely just
                     // reopening a run that's already in progress (nothing new gets started then).
                     .clickable(
+                        enabled = !serverRunning,
                         onClick = when {
                             statusIsWorking -> onOpenProcessing
                             // An imported conversation has no audio: nothing to transcribe, so no engine to choose.
@@ -565,6 +662,7 @@ private fun NotDoneState(
             ) {
                 Text(
                     when {
+                        serverRunning -> "MENUNGGU SERVER…"
                         statusIsWorking -> "LIHAT PROGRES"
                         failed -> "COBA LAGI"
                         else -> "MULAI TRANSKRIP"
@@ -587,6 +685,11 @@ private fun NotDoneState(
             onConfirm = { engine, start, end ->
                 showEnginePicker = false
                 onStartProcessing(engine, start, end)
+            },
+            serverOption = serverOptionOf(),
+            onConfirmServer = {
+                showEnginePicker = false
+                onStartServer()
             },
         )
     }
@@ -615,6 +718,11 @@ private fun ScriptTab(
     val active = if (playback.ready && (playback.playing || playback.positionSec > 0)) {
         segments.indexOfLast { it.timestampSec <= playback.positionSec }.takeIf { it >= 0 }
     } else null
+
+    // Each bookmark hangs on the line being spoken when it was made (the last one starting at or before it).
+    val marksBySegment = remember(segments, actions.marks) {
+        actions.marks.groupBy { m -> segments.indexOfLast { it.timestampSec <= m.timestampSec }.coerceAtLeast(0) }
+    }
 
     // Follow the audio while it plays so the highlighted line stays on screen.
     androidx.compose.runtime.LaunchedEffect(active, playback.playing) {
@@ -661,6 +769,17 @@ private fun ScriptTab(
                                     tint = IdColor.Accent,
                                     modifier = Modifier.size(14.dp),
                                 )
+                            }
+                        }
+                        marksBySegment[index]?.let { flagged ->
+                            Spacer(Modifier.height(5.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                                flagged.forEach { m ->
+                                    Text(
+                                        "⚑ " + markChipText(m), color = IdColor.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                                        modifier = Modifier.background(IdColor.Neutral900).clickable { onSeek(m.timestampSec) }.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    )
+                                }
                             }
                         }
                         Spacer(Modifier.height(4.dp))
@@ -959,4 +1078,11 @@ private fun SkipButton(rewind: Boolean, onClick: () -> Unit) {
         )
         Text("15", fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = IdColor.Neutral800)
     }
+}
+
+/** "03:20", or "03:20 · Keputusan anggaran" once the mark has a name of its own (not the automatic "Penanda N"). */
+private fun markChipText(m: com.inteldes.app.data.model.RecordingMark): String {
+    val time = com.inteldes.app.ui.util.formatMmSs(m.timestampSec)
+    val named = m.label.isNotBlank() && !m.label.startsWith("Penanda")
+    return if (named) "$time · ${m.label.take(20)}" else time
 }

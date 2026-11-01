@@ -159,6 +159,11 @@ private class FakeServer : WebRemote {
         r.marks[m.id] = m
         touch(id)
     }
+    fun webRenameMark(id: String, markId: String, label: String) {
+        val r = recs.getValue(id)
+        r.marks[markId] = r.marks.getValue(markId).copy(label = label)
+        touch(id)
+    }
     fun webAddChat(id: String, text: String) {
         val r = recs.getValue(id)
         val c = WebChat(java.util.UUID.randomUUID().toString(), r.chat.size, false, text, 7)
@@ -324,6 +329,58 @@ class WebSyncEngineTest {
         assertEquals(0, server.count("upload") + server.count("putRecording") + server.count("putMarks") + server.count("putCategory"))
         assertTrue(phone.cats.any { it.label == "Dari server" })                        // categories still come down
         assertEquals("Rekaman HP", phone.recs.getValue("mine").input.title)             // and the phone's recording is untouched
+    }
+
+    private fun renamePhoneMark(id: String, label: String) {
+        val r = phone.recs.getValue(id)
+        r.marks = r.marks.map { it.copy(label = label) }
+    }
+
+    @Test
+    fun aMarkRenamedOnThePhoneReachesTheServerAsTheSameMark() {
+        phone.create("r1", "Rapat", status = "DONE", audio = "A", transcript = true, notes = true)
+        phone.mark("r1", 12, "Penanda 1")
+        sync()
+        renamePhoneMark("r1", "Keputusan anggaran")
+        assertEquals(0, sync().failed)
+        assertEquals(listOf("Keputusan anggaran"), server.recs.getValue("r1").marks.values.map { it.label })
+    }
+
+    @Test
+    fun aMarkRenamedOnTheWebComesDownToThePhone() {
+        phone.create("r1", "Rapat", status = "DONE", audio = "A", transcript = true, notes = true)
+        phone.mark("r1", 12, "Penanda 1")
+        sync()
+        val markId = server.recs.getValue("r1").marks.keys.single()
+        server.webRenameMark("r1", markId, "Dari web")
+        assertEquals(0, sync().failed)
+        assertEquals(listOf("Dari web"), phone.recs.getValue("r1").marks.map { it.label })
+        sync()                                                                  // and it stays that way, nothing bounces back
+        assertEquals(listOf("Dari web"), server.recs.getValue("r1").marks.values.map { it.label })
+    }
+
+    @Test
+    fun whenBothSidesRenameTheSameMarkThePhoneWins() {
+        phone.create("r1", "Rapat", status = "DONE", audio = "A", transcript = true, notes = true)
+        phone.mark("r1", 12, "Penanda 1")
+        sync()
+        val markId = server.recs.getValue("r1").marks.keys.single()
+        renamePhoneMark("r1", "Dari HP")
+        server.webRenameMark("r1", markId, "Dari web")
+        sync()
+        assertEquals(listOf("Dari HP"), phone.recs.getValue("r1").marks.map { it.label })
+        assertEquals(listOf("Dari HP"), server.recs.getValue("r1").marks.values.map { it.label })
+    }
+
+    @Test
+    fun aRecordingTheUserKeepsOutOfTheSyncIsNeitherSentNorOverwritten() {
+        phone.create("in", "Ikut sinkron", status = "DONE", audio = "A", transcript = true, notes = true)
+        phone.create("out", "Tetap di HP", status = "DONE", audio = "B", transcript = true, notes = true)
+        val report = runBlocking { WebSyncEngine(phone, server, store, excluded = { setOf("out") }).run() }
+        assertEquals(0, report.failed)
+        assertTrue("in" in server.recs)
+        assertFalse("out" in server.recs)                                              // never went up
+        assertEquals("Tetap di HP", phone.recs.getValue("out").input.title)
     }
 
     @Test

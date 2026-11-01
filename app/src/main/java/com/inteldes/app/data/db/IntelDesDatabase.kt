@@ -49,6 +49,11 @@ abstract class IntelDesDatabase : RoomDatabase() {
     companion object {
         @Volatile private var instance: IntelDesDatabase? = null
 
+        /** Every step from the first release to [version]; also what the migration test runs. */
+        internal val ALL_MIGRATIONS: Array<Migration> by lazy {
+            arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+        }
+
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `categories` (`id` TEXT NOT NULL, `label` TEXT NOT NULL, `orderIndex` INTEGER NOT NULL, PRIMARY KEY(`id`))")
@@ -90,7 +95,7 @@ abstract class IntelDesDatabase : RoomDatabase() {
                     context.applicationContext,
                     IntelDesDatabase::class.java,
                     "inteldes.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build().also { instance = it }
+                ).addMigrations(*ALL_MIGRATIONS).build().also { instance = it }
             }
 
         /**

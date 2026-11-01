@@ -42,15 +42,11 @@ class SecurePrefs(context: Context) {
         get() = prefs.getString(KEY_WHISPER_CLOUD, null)?.trim()
         set(value) = prefs.edit().putString(KEY_WHISPER_CLOUD, value?.trim()).apply()
 
-    // Keys packaged into this build (from .env) are used first, so the app works without typing anything.
-    // A key typed in Settings is only the fallback for keys this build was NOT packaged with.
-    val hasEmbeddedGemini: Boolean get() = BuildConfig.EMBEDDED_GEMINI_KEY.isNotBlank()
-    val hasEmbeddedClaude: Boolean get() = BuildConfig.EMBEDDED_CLAUDE_KEY.isNotBlank()
-    val hasEmbeddedWhisperCloud: Boolean get() = BuildConfig.EMBEDDED_DEEPGRAM_KEY.isNotBlank()
-
-    val effectiveGeminiKey: String? get() = BuildConfig.EMBEDDED_GEMINI_KEY.trim().takeIf { it.isNotBlank() } ?: geminiApiKey?.takeIf { it.isNotBlank() }
-    val effectiveClaudeKey: String? get() = BuildConfig.EMBEDDED_CLAUDE_KEY.trim().takeIf { it.isNotBlank() } ?: claudeApiKey?.takeIf { it.isNotBlank() }
-    val effectiveWhisperCloudKey: String? get() = BuildConfig.EMBEDDED_DEEPGRAM_KEY.trim().takeIf { it.isNotBlank() } ?: whisperCloudApiKey?.takeIf { it.isNotBlank() }
+    // No key is packaged into the app any more (an APK can be taken apart and its keys read by anyone): only
+    // what the user typed in Settings is used, for the mode without a server. The names stay for the callers.
+    val effectiveGeminiKey: String? get() = geminiApiKey?.takeIf { it.isNotBlank() }
+    val effectiveClaudeKey: String? get() = claudeApiKey?.takeIf { it.isNotBlank() }
+    val effectiveWhisperCloudKey: String? get() = whisperCloudApiKey?.takeIf { it.isNotBlank() }
 
     companion object {
         private const val KEY_GEMINI = "gemini_api_key"

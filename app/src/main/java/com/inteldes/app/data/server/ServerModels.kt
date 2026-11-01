@@ -20,6 +20,33 @@ data class LoginResult(
 /** Response of `POST /v1/auth/refresh`: the refresh token is a NEW one — the old one is dead. */
 data class RefreshResult(val deviceId: String, val accessToken: String, val refreshToken: String, val expiresInSec: Int)
 
+/** Used out of limit. [limit] null = NO limit (a package without that number); it must stay nullable or Gson turns it into 0. */
+data class AiUsage(val used: Int = 0, val limit: Int? = null) {
+    /** Whole units left, or null when unlimited. */
+    val left: Int? get() = limit?.let { (it - used).coerceAtLeast(0) }
+}
+
+/** [id] null = the system's default package. */
+data class AiPlan(val id: String? = null, val name: String? = null)
+
+data class AiPlatformLimit(val jobs: Int? = null, val asks: Int? = null, val minutes: Int? = null)
+
+/**
+ * Where this account's AI key comes from and what is left of it (GET /v1/settings, `aiAccess`).
+ * [source] "platform" = the IntelDes key under a package (calendar-period quota, [resetsAt] = when the period turns);
+ * "own" = the account's own key, no package, only a rolling 24-hour guard on [jobs] and [asks].
+ */
+data class AiAccess(
+    val source: String = "own", val platformAvailable: Boolean = false, val plan: AiPlan? = null,
+    val jobs: AiUsage = AiUsage(), val asks: AiUsage = AiUsage(), val minutes: AiUsage? = null,
+    val resetsAt: Long? = null, val platformLimit: AiPlatformLimit? = null,
+)
+
+/** Which AI keys the server can actually use for this account ({deepgram, gemini, claude} readiness). */
+data class AiReady(val deepgram: Boolean = false, val gemini: Boolean = false, val claude: Boolean = false)
+
+data class ServerSettingsView(val aiAccess: AiAccess? = null, val ai: AiReady? = null)
+
 data class MeResult(val user: ServerUser, val org: ServerOrg, val role: String, val deviceId: String, val superadmin: Boolean = false)
 
 /** What the web browser behind a QR looks like, shown on the approval screen. */

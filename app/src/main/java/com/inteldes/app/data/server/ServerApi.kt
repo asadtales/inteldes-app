@@ -73,7 +73,28 @@ class ServerApi(
         return gson.fromJson(call(plain, post("/v1/auth/pair/claim", body)), LoginResult::class.java)
     }
 
+    /** The ways in this server offers; null when it cannot be reached (the login screen then shows email + QR only). */
+    suspend fun providers(): Providers? =
+        runCatching { gson.fromJson(call(plain, get("/v1/auth/providers")), Providers::class.java) }.getOrNull()
+
+    /**
+     * Finishes a Google / portal login that the browser started: trades the one-time [code] and the secret [verifier]
+     * for this phone's tokens. The server checks that the verifier matches the challenge sent when the login began.
+     */
+    suspend fun exchangeAppLogin(code: String, verifier: String, deviceName: String): LoginResult {
+        val body = JsonObject().apply {
+            addProperty("code", code)
+            addProperty("verifier", verifier)
+            addProperty("platform", "android")
+            addProperty("deviceName", deviceName.take(100))
+        }
+        return gson.fromJson(call(plain, post("/v1/auth/app/exchange", body)), LoginResult::class.java)
+    }
+
     // ───────────────────────── needs the session (refreshes itself on 401) ─────────────────────────
+
+    /** The account's server-side settings; the app only reads the AI key source, readiness and usage from it. */
+    suspend fun settings(): ServerSettingsView = gson.fromJson(call(authed, get("/v1/settings")), ServerSettingsView::class.java)
 
     suspend fun me(): MeResult = gson.fromJson(call(authed, get("/v1/auth/me")), MeResult::class.java)
 
@@ -142,6 +163,7 @@ class ServerApi(
         private val JSON = "application/json; charset=utf-8".toMediaType()
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .addInterceptor(RetryAfterInterceptor())
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)

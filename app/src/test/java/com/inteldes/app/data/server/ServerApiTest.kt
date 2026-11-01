@@ -70,6 +70,32 @@ class ServerApiTest {
     }
 
     @Test
+    fun settingsTellWhereTheAiKeyComesFromAndHowMuchIsLeft() {
+        server.enqueue(json(200, """{"settings":{"aiKeySource":"platform"},"aiAccess":{"source":"platform","platformAvailable":true,
+            "jobs":{"used":2,"limit":10},"asks":{"used":5,"limit":30},"platformLimit":{"jobs":10,"asks":30}},
+            "ai":{"deepgram":true,"gemini":true,"claude":false},"models":{}}"""))
+        val view = runBlocking { ServerApi(url(), MemoryTokens("A1", "R1")).settings() }
+        assertEquals("platform", view.aiAccess?.source)
+        assertEquals(2, view.aiAccess?.jobs?.used)
+        assertEquals(30, view.aiAccess?.asks?.limit)
+        assertEquals(false, view.ai?.claude)
+    }
+
+    @Test
+    fun aLimitThatIsNullInTheSettingsMeansNoLimitNotZero() {
+        server.enqueue(json(200, """{"settings":{},"aiAccess":{"source":"platform","platformAvailable":true,"plan":{"id":null,"name":"Paket bawaan"},
+            "jobs":{"used":1,"limit":5},"asks":{"used":0,"limit":null},"minutes":{"used":42,"limit":null},"resetsAt":1793600000000,
+            "platformLimit":{"jobs":5,"asks":null,"minutes":null}},"ai":{"deepgram":true,"gemini":true,"claude":true}}"""))
+        val a = runBlocking { ServerApi(url(), MemoryTokens("A1", "R1")).settings() }.aiAccess!!
+        assertNull(a.asks.limit)
+        assertNull(a.minutes!!.limit)
+        assertNull(a.minutes!!.left)
+        assertNull(a.plan!!.id)
+        assertEquals(4, a.jobs.left)
+        assertEquals(1793600000000L, a.resetsAt)
+    }
+
+    @Test
     fun meTellsATeamFromAPersonalAccountAndTheLoginAnswerDoesNot() {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {

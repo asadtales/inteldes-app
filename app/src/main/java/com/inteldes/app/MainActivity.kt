@@ -30,10 +30,14 @@ class MainActivity : FragmentActivity() {
     // A QR opened through an App Link (the camera app, a message). Parsed with the SAME checks as an in-app scan.
     private val pairLink = androidx.compose.runtime.mutableStateOf<com.inteldes.app.data.server.PairingLink?>(null)
 
+    // `inteldes://auth/callback?...`: the browser handing back a Google / portal login. Read and checked in the nav graph.
+    private val appLoginUri = androidx.compose.runtime.mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (isRecordShortcutIntent(intent)) recordShortcutToken.intValue++
         pairLink.value = pairLinkFrom(intent)
+        appLoginUri.value = appLoginUriFrom(intent)
         setContent {
             IntelDesTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = IdColor.Bg) {
@@ -43,6 +47,8 @@ class MainActivity : FragmentActivity() {
                         recordShortcutToken = recordShortcutToken.intValue,
                         pairLink = pairLink.value,
                         onPairLinkHandled = { pairLink.value = null },
+                        appLoginUri = appLoginUri.value,
+                        onAppLoginHandled = { appLoginUri.value = null },
                     )
                 }
             }
@@ -54,7 +60,13 @@ class MainActivity : FragmentActivity() {
         setIntent(intent)
         if (isRecordShortcutIntent(intent)) recordShortcutToken.intValue++
         pairLinkFrom(intent)?.let { pairLink.value = it }
+        appLoginUriFrom(intent)?.let { appLoginUri.value = it }
     }
+
+    private fun appLoginUriFrom(intent: Intent?): String? =
+        intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data
+            ?.takeIf { it.scheme == com.inteldes.app.data.server.AppLoginLink.SCHEME && it.host == com.inteldes.app.data.server.AppLoginLink.HOST }
+            ?.toString()
 
     private fun pairLinkFrom(intent: Intent?): com.inteldes.app.data.server.PairingLink? {
         val data = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return null
