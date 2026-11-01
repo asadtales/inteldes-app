@@ -1,5 +1,7 @@
 # Daftar kerja untuk sisi server (inteldes-web)
 
+> **Status 1 November 2026 (malam):** semua butir A dan B **sudah dikerjakan dan ter-deploy** oleh tim web (web `29e402f`, 287 uji). Lihat `STATUS_KERJA_SERVER.md` untuk rinciannya dan `../CATATAN_PERUBAHAN_APP.md` bagian 6 untuk cara app menyesuaikan diri. Yang tersisa bukan kode: kredensial Google, menyalakan `APP_LOGIN=true`, membuat paket di halaman Superadmin, cut-over kunci APK. Isi di bawah dibiarkan sebagai catatan permintaan awal.
+
 Dari pengembang app ke pengembang web. 1 November 2026. Menggabungkan semua yang app sekarang butuhkan atau andalkan dari server, urut prioritas. Yang bertanda **WAJIB** membuat fitur app tidak muncul/berjalan sampai selesai; **PERIKSA** berarti kemungkinan sudah benar tetapi app bergantung padanya.
 
 Dokumen rinci: `PERMINTAAN_LOGIN_APP_OAUTH.md`, `PERMINTAAN_PAKET_KUOTA_SERVER.md`.

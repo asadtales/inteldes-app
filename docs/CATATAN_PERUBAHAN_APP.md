@@ -1,10 +1,13 @@
-# Catatan perubahan app (belum di-commit) — 1 November 2026
+# Catatan perubahan app — 1 November 2026 (versi 2.5.0)
 
-> Dokumen ini di-push lebih dulu supaya tim web bisa membacanya. **Kode yang dijelaskannya belum ada di GitHub**; menyusul setelah diuji di HP.
+> Kode yang dijelaskan dokumen ini sudah di-commit dan di-push (lihat bagian 7).
 
-Semua di bawah ada di working tree `D:\project\inteldes-app`, **belum di-commit dan belum di-push**. Tes unit: **128 lolos**. Belum satu pun diuji di HP asli (HP tidak tersambung saat pengerjaan); apa yang sudah dan belum terbukti ditulis per butir.
+Tes unit: **130 lolos**. Sebagian sudah diuji di HP asli (lihat bagian 7); yang belum ditandai per butir.
 
 Rencana dan peta kesetaraan: `docs/RENCANA_KESETARAAN_WEB_APP.md`. Yang harus dikerjakan di server: `docs/server/DAFTAR_KERJA_SERVER.md`.
+
+## 0. Kabar terbaru dari server
+Tim web sudah mengerjakan seluruh `DAFTAR_KERJA_SERVER.md` (web `29e402f`, produksi). Penyesuaian app ada di bagian 6.
 
 ## 1. Perubahan per fitur
 
@@ -102,3 +105,38 @@ Pesan commit diakhiri baris `Co-Authored-By` sesuai kebiasaan repo.
 1. Server dulu: A1/A2 di `DAFTAR_KERJA_SERVER.md`, deploy dengan `APP_LOGIN` mati, uji, lalu aktifkan.
 2. App: commit dan push; bangun APK baru (naikkan `versionCode`); uji sesuai bagian 3.
 3. Cut-over kunci (`CUTOVER_KUNCI_APK.md` bagian 3) hanya oleh pemilik: kunci baru ke server, kunci lama dicabut.
+
+## 6. Penyesuaian setelah server `29e402f` (login app, paket kuota, serah terima Fase 4)
+
+Hasil membaca kode dan dokumen tim web (`STATUS_KERJA_SERVER.md`, `ANDROID_FASE4.md`, `src/auth/app-login.ts`, `src/http/routes/app-login.ts`):
+
+| Hal di server | Cocok dengan app? | Tindakan |
+|---|---|---|
+| `GET /auth/app/start?provider&challenge&state`: regex challenge 43 karakter, state 16–128, provider `google`\|`sso` | Ya (verifier 43 karakter, state 43, S256 base64url tanpa padding) | Tidak ada |
+| Serah-terima HTML dengan tombol "Buka IntelDes" + meta refresh ke `inteldes://auth/callback?code&state` atau `?error&state` | Ya: intent-filter dan pembaca callback memeriksa `state` | Tidak ada. Pembukaan otomatis tidak dijamin (tanpa skrip karena CSP); tombol adalah jalurnya |
+| `POST /v1/auth/app/exchange`: verifier `^[A-Za-z0-9._~-]{43,128}$`, kode hangus pada percobaan pertama, `400 invalid_code`, `403 account_disabled` | Ya: app menghapus verifier tersimpan setelah satu percobaan apa pun hasilnya, pesan server ditampilkan | Tidak ada |
+| `providers.appLogin` bawaan mati | Ya: tombol tersembunyi | Aktifkan oleh pemilik (`APP_LOGIN=true`) setelah uji di HP |
+| `aiAccess`: `limit: null` = **tanpa batas**, `plan.id` null = paket bawaan, `minutes`, `resetsAt`, `platformLimit` | **Tidak cocok**: model app memakai `Int` non-null sehingga "tanpa batas" terbaca 0 dari 0 | **Diperbaiki**: `AiUsage.limit: Int?`, `AiPlan.id: String?`, `platformLimit`, tes `aLimitThatIsNullInTheSettingsMeansNoLimitNotZero` |
+| Galat kuota: `429 quota_minutes_exceeded`, `quota_jobs_exceeded`, `403 plan_provider_not_allowed`, `422 recording_too_long`, dengan `details.resetsAt` | Ya: pesan server dipakai apa adanya, tanpa coba ulang | Tidak ada |
+| Penolakan kuota terjadi **sebelum** antre dan tidak mengubah rapat | Tetapi app sudah mengunggah audio sebelum meminta proses | **Ditambah**: app memeriksa `aiAccess` lebih dulu (`ServerProcessor.quotaBlock`) dan berhenti sebelum mengunggah bila sisa menit/pekerjaan jelas tidak cukup. Server tetap berwenang akhir |
+| Kartu "Kunci AI di server" | Kurang: tidak menampilkan paket bawaan, menit tanpa batas, atau pagar 24 jam untuk kunci sendiri | **Diperbarui**: kartu membedakan kunci IntelDes (paket, menit, pemrosesan, pertanyaan, waktu pulih) dari kunci sendiri (pagar 24 jam), dan menulis "tanpa batas" |
+| Periode "hari" kini kalender WIB | Hanya tampilan | `resetsAt` dari server ditampilkan |
+| `429` pembatas laju membawa `Retry-After` 1–60 detik | Ya: `RetryAfterInterceptor` menunggu sampai 30 detik, maksimal 2 kali | Tidak ada |
+| `url` bagikan absolut | Ya | Tidak ada |
+| `/trim` server: `422 no_audio`, `unsupported_audio`, 20/menit | Ya: pesan server diteruskan | Tidak ada |
+| Server menerima audio: mp4, aac, mpeg, wav, ogg, webm (+ m4a, x-m4a, x-wav); menolak flac, 3gpp dengan 415; **bukan** `audio/mp3` | Ya: `AudioFormats.normalizeContainerMime` | Tidak ada |
+| Ekspor PDF di server (`GET .../export?format=pdf`), tanpa foto | App punya PDF sendiri di HP (offline, dengan foto) | Tetap. Bisa dipakai sebagai cadangan nanti |
+| Deteksi hening di server | App menghitung sendiri di HP | Tetap (disarankan server) |
+| `audioPurgedAt` belum ada | App menyimpulkan dari `audioBlobSha256` yang jadi null | Tetap |
+
+Hal yang tetap belum terbukti: semuanya masih dengan server palsu atau tes unit; belum ada uji dengan server produksi dan belum di HP.
+
+## 7. Versi, "Tentang", dan hasil uji di HP (Galaxy M51)
+
+**Versi 2.5.0 (build 4).** Layar Pengaturan > Tentang kini menampilkan apa adanya: versi dan nomor build, **commit sumber** (bila ada perubahan yang belum di-commit saat membangun, tertulis "+ perubahan yang belum di-commit (build uji, bukan rilis)"), waktu build, dan "Kunci AI: tidak ada di dalam aplikasi". Nilainya diisi saat build dari git (`BUILD_COMMIT`, `BUILD_DIRTY`, `BUILD_TIME_MS` di `app/build.gradle.kts`). Daftar disclaimer juga diperbarui: proses di server, tautan bagikan publik, hapus template/konteks, login lewat browser, dan tidak ada kunci AI di dalam app.
+
+Cara membaca: APK yang dibangun dari commit bersih menampilkan `(sesuai commit)`; APK yang dibangun dari pohon kerja kotor menampilkan peringatan itu. APK rilis harus dibangun dari commit bersih.
+
+**Diuji di HP asli (1 Nov 2026):** migrasi 7→9 (3 tes instrumentasi lolos), potong 3 rentang pada rekaman WebM (hasil 44,98 detik, terdecode penuh, penanda 43→23), draf potong (simpan dan lanjutkan), deteksi hening pada audio WebM, ekspor PDF (dibaca sebagai gambar), ubah nama penanda dan bendera di transkrip, kartu "Kunci AI di server" dengan server produksi, dialog pilihan "Diproses di", daftar rekaman yang ikut sinkron.
+
+**Belum diuji di HP:** membuat dan mencabut tautan bagikan serta proses lewat server dengan server asli (HP masih mode hanya menerima), login Google/SSO (server belum menyalakan `APP_LOGIN`), hapus sumber dari konteks, potong m4a dan mp3/wav lewat server, deteksi hening pada rekaman dengan jeda nyata.

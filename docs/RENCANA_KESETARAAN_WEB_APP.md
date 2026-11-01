@@ -116,4 +116,6 @@ Tahap 5 diletakkan sebelum 3 dan 4 karena build tanpa kunci membuat proses dari 
 
 ## 5. Status per 1 November 2026 (malam)
 
+Server (web `29e402f`) sudah menyelesaikan login app, paket/kuota, dan pemeriksaan B1–B9 (`server/STATUS_KERJA_SERVER.md`); app sudah disesuaikan (`CATATAN_PERUBAHAN_APP.md` bagian 6).
+
 Tahap 1, 2, 3.1, 3.2, 4, 5 (kecuali paket/kuota di server), 6 (termasuk 6.4) dan 7 sudah dikerjakan di kode app; tahap 7 menunggu server. Rincian perubahan dan cara uji: `CATATAN_PERUBAHAN_APP.md`. Kerja server: `server/DAFTAR_KERJA_SERVER.md`.
