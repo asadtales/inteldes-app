@@ -84,3 +84,9 @@ Catatan B9: server **tidak** menerima `audio/mp3` (hanya `audio/mpeg`), jadi nor
 2. Menyalakan `APP_LOGIN` sama sekali: dianjurkan setelah `AppLoginTest` dan alur di HP teruji, karena bawaannya mati agar aman.
 3. Membuat paket di halaman Superadmin dan memasangnya; sampai itu, semua akun pribadi memakai paket bawaan sistem.
 4. Cut-over kunci APK (`CUTOVER_KUNCI_APK.md`): pemilik mengganti dan mencabut kunci lama.
+
+## Editor potong web: area ganda, analisa hening, draf (2026-11-02)
+
+- Web: editor potong memakai area bertanda Pertahankan/Hapus (boleh banyak) dan panel hasil analisa hening yang diterapkan sebagai area Hapus.
+- Server baru: `GET/PUT/DELETE /v1/recordings/{id}/trim-draft` (operator+, per pengguna per rapat; isi `TrimDraftState`). App dapat memakai draf yang sama agar sesi potong bisa dilanjutkan lintas perangkat. Kirim ke `POST /trim` tetap berupa `ranges` (bagian yang dipertahankan).
+- Snapshot `openapi.snapshot.yaml` sudah diperbarui.

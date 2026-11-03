@@ -685,6 +685,43 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { description: "Rapat tanpa audio di server." }
+  /v1/recordings/{id}/trim-draft:
+    get:
+      tags: [Rapat]
+      summary: Draf editor potong milik pengguna ini
+      description: Sesi potong yang belum selesai (area bertanda, pilihan, posisi, hasil analisa hening). Per pengguna per rapat; null bila belum ada.
+      operationId: getTrimDraft
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200": { description: "Draf atau null.", content: { application/json: { schema: { type: object, required: [draft], properties: { draft: { type: [object, "null"], required: [state, updatedAt], properties: { state: { $ref: "#/components/schemas/TrimDraftState" }, updatedAt: { type: integer } } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Rapat]
+      summary: Simpan draf editor potong
+      operationId: putTrimDraft
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [state], properties: { state: { $ref: "#/components/schemas/TrimDraftState" } } } } } }
+      responses:
+        "200": { description: "Tersimpan.", content: { application/json: { schema: { type: object, required: [updatedAt], properties: { updatedAt: { type: integer } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Rapat]
+      summary: Buang draf editor potong
+      operationId: deleteTrimDraft
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "204": { description: "Dibuang (juga bila tidak ada)." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /v1/recordings/{id}/silence:
     get:
       tags: [Rapat]
@@ -2119,6 +2156,31 @@ components:
         aiKeySource: { $ref: "#/components/schemas/KeySource" }
         audioRetentionDays: { type: [integer, "null"], minimum: 0, maximum: 36500, description: "Masa simpan audio asli (hari sejak direkam). null = selamanya; 0 = hapus begitu notulensi siap. Teks dan foto tidak ikut dihapus." }
       additionalProperties: false
+    TrimDraftState:
+      type: object
+      required: [version, regions, uncovered, sel, pos, zoomIdx, analysis, title, kind, copyMarks]
+      additionalProperties: false
+      description: "Keadaan editor potong. Server hanya menyimpan; bentuknya dibatasi (maks 300 area, 2000 bagian hening)."
+      properties:
+        version: { const: 1 }
+        regions:
+          type: array
+          maxItems: 300
+          items: { type: object, required: [start, end, mode], properties: { start: { type: number }, end: { type: number }, mode: { type: string, enum: [keep, cut], description: "keep = dipertahankan, cut = dihapus" } } }
+        uncovered: { type: string, enum: [keep, cut], description: "Nasib bagian yang belum ditandai." }
+        sel: { type: object, required: [start, end], properties: { start: { type: number }, end: { type: number } } }
+        pos: { type: number }
+        zoomIdx: { type: integer }
+        analysis:
+          type: [object, "null"]
+          required: [noiseDb, minSilence, silences]
+          properties:
+            noiseDb: { type: integer }
+            minSilence: { type: integer }
+            silences: { type: array, maxItems: 2000, items: { type: object, required: [startSec, endSec, use], properties: { startSec: { type: number }, endSec: { type: number }, use: { type: boolean } } } }
+        title: { type: string, maxLength: 300 }
+        kind: { type: string, maxLength: 100 }
+        copyMarks: { type: boolean }
     KeySource:
       type: string
       enum: [own, platform]
