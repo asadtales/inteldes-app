@@ -621,6 +621,28 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /v1/recordings/{id}/videos:
+    put:
+      tags: [Rapat]
+      summary: Gabungkan video singkat dokumentasi per UUID
+      description: |
+        Video diunggah dulu lewat tus (batas 100 MB dan 120 detik, lihat `/v1/uploads`); `409 blob_missing` bila `blobSha256` belum ada
+        di organisasi ini, `422 not_video` bila berkas bukan video atau melewati batas, `422 too_many_videos` bila video aktif per rapat
+        melebihi 20. Panjang dan ukuran yang dikembalikan di `GET /recordings/{id}` diukur server. Penghapusan mengalahkan edit.
+      operationId: putVideos
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [videos], properties: { videos: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/VideoInput" } } } } } }
+      responses:
+        "204": { description: "Tergabung." }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { description: "Bukan video yang sah atau terlalu banyak video." }
   /v1/recordings/{id}/revisions:
     get:
       tags: [Rapat]
@@ -1290,7 +1312,9 @@ paths:
       description: |
         Protokol tus. Header wajib: `Tus-Resumable: 1.0.0`, `Upload-Length`, dan
         `Upload-Metadata: sha256 <b64>,filetype <b64>`. Jenis yang diizinkan: audio mp4/m4a/aac/mpeg/wav/ogg/webm
-        dan gambar jpeg/png/webp. Organisasi diambil dari sesi, `org` dari klien dibuang. Potongan klien ≤ 8 MB
+        gambar jpeg/png/webp, dan video singkat mp4/webm/quicktime/3gpp. Video dibatasi `VIDEO_MAX_BYTES` (bawaan 100 MB; `413` saat
+        membuat unggahan bila `Upload-Length` lebih besar atau tidak diumumkan `400`) dan `VIDEO_MAX_SEC` (bawaan 120 detik; panjang
+        diukur server setelah unggahan selesai, `413` bila lebih panjang, `422` bila bukan video yang bisa dibaca). Organisasi diambil dari sesi, `org` dari klien dibuang. Potongan klien ≤ 8 MB
         (Cloudflare membatasi 100 MB per permintaan). Server menghitung ulang sha256 dan menolak `422` bila tak cocok;
         `Upload-Sha256` dikembalikan pada potongan terakhir.
       operationId: tusCreate
@@ -1304,7 +1328,7 @@ paths:
         "400": { description: "Metadata `sha256` tidak ada atau tidak valid." }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
-        "413": { description: "Melebihi ukuran maksimum." }
+        "413": { description: "Melebihi ukuran maksimum (video: 100 MB atau 120 detik)." }
         "415": { description: "Jenis berkas tidak diizinkan." }
     options:
       tags: [Blob]
@@ -1971,12 +1995,47 @@ components:
         deletedAt: { oneOf: [{ $ref: "#/components/schemas/EpochMs" }, { type: "null" }] }
     Photo:
       type: object
-      required: [id, blobSha256, takenAtSec, caption, createdAt, deletedAt]
+      required: [id, blobSha256, takenAtSec, caption, latitude, longitude, accuracyM, placeName, createdAt, deletedAt]
       properties:
         id: { type: string, format: uuid }
         blobSha256: { $ref: "#/components/schemas/Sha256" }
         takenAtSec: { type: [integer, "null"] }
         caption: { type: string }
+        latitude: { type: [number, "null"], minimum: -90, maximum: 90, description: "Geotag WGS84; harus berpasangan dengan longitude." }
+        longitude: { type: [number, "null"], minimum: -180, maximum: 180 }
+        accuracyM: { type: [number, "null"], minimum: 0, description: "Akurasi horizontal dalam meter." }
+        placeName: { type: [string, "null"], maxLength: 200 }
+        createdAt: { $ref: "#/components/schemas/EpochMs" }
+        deletedAt: { oneOf: [{ $ref: "#/components/schemas/EpochMs" }, { type: "null" }] }
+    Video:
+      type: object
+      required: [id, blobSha256, takenAtSec, caption, latitude, longitude, accuracyM, placeName, durationSec, sizeBytes, mime, createdAt, deletedAt]
+      properties:
+        id: { type: string, format: uuid }
+        blobSha256: { $ref: "#/components/schemas/Sha256" }
+        takenAtSec: { type: [integer, "null"] }
+        caption: { type: string }
+        latitude: { type: [number, "null"], minimum: -90, maximum: 90, description: "Geotag WGS84; harus berpasangan dengan longitude." }
+        longitude: { type: [number, "null"], minimum: -180, maximum: 180 }
+        accuracyM: { type: [number, "null"], minimum: 0, description: "Akurasi horizontal dalam meter." }
+        placeName: { type: [string, "null"], maxLength: 200 }
+        durationSec: { type: number, description: "Panjang video, diukur server (bukan klaim klien)." }
+        sizeBytes: { type: integer }
+        mime: { type: string }
+        createdAt: { $ref: "#/components/schemas/EpochMs" }
+        deletedAt: { oneOf: [{ $ref: "#/components/schemas/EpochMs" }, { type: "null" }] }
+    VideoInput:
+      type: object
+      required: [id, blobSha256, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        blobSha256: { $ref: "#/components/schemas/Sha256" }
+        takenAtSec: { type: [integer, "null"], minimum: 0 }
+        caption: { type: string, maxLength: 1000 }
+        latitude: { type: [number, "null"], minimum: -90, maximum: 90, description: "Geotag WGS84; harus berpasangan dengan longitude." }
+        longitude: { type: [number, "null"], minimum: -180, maximum: 180 }
+        accuracyM: { type: [number, "null"], minimum: 0, description: "Akurasi horizontal dalam meter." }
+        placeName: { type: [string, "null"], maxLength: 200 }
         createdAt: { $ref: "#/components/schemas/EpochMs" }
         deletedAt: { oneOf: [{ $ref: "#/components/schemas/EpochMs" }, { type: "null" }] }
     AiOptions:
@@ -2028,6 +2087,10 @@ components:
         blobSha256: { $ref: "#/components/schemas/Sha256" }
         takenAtSec: { type: [integer, "null"], minimum: 0 }
         caption: { type: string, maxLength: 1000 }
+        latitude: { type: [number, "null"], minimum: -90, maximum: 90, description: "Geotag WGS84; harus berpasangan dengan longitude." }
+        longitude: { type: [number, "null"], minimum: -180, maximum: 180 }
+        accuracyM: { type: [number, "null"], minimum: 0, description: "Akurasi horizontal dalam meter." }
+        placeName: { type: [string, "null"], maxLength: 200 }
         createdAt: { $ref: "#/components/schemas/EpochMs" }
         deletedAt: { oneOf: [{ $ref: "#/components/schemas/EpochMs" }, { type: "null" }] }
     Revision:
@@ -2114,7 +2177,7 @@ components:
         createdAt: { $ref: "#/components/schemas/EpochMs" }
     RecordingAggregate:
       type: object
-      required: [recording, transcript, notes, marks, photos, chat]
+      required: [recording, transcript, notes, marks, photos, videos, chat]
       properties:
         recording: { $ref: "#/components/schemas/Recording" }
         transcript:
@@ -2127,6 +2190,7 @@ components:
           properties: { version: { type: integer }, sections: { type: array, items: { $ref: "#/components/schemas/NoteSection" } } }
         marks: { type: array, items: { $ref: "#/components/schemas/Mark" } }
         photos: { type: array, items: { $ref: "#/components/schemas/Photo" } }
+        videos: { type: array, items: { $ref: "#/components/schemas/Video" } }
         chat: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } }
 
     AiProvider: { enum: [AUTO, GEMINI, CLAUDE], description: "AUTO: Gemini untuk rapat > 90 menit, selain itu Claude." }

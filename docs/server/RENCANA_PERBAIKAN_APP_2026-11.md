@@ -156,15 +156,24 @@ Kebutuhan pemilik: foto yang diambil saat rapat memuat **geotag** (koordinat) da
 3. Simpan **dua hal**: berkas JPEG ber-cap (yang diunggah sebagai foto rapat) **dan** metadata EXIF GPS di dalam JPEG (`ExifInterface`: `GPSLatitude/Longitude/Altitude/DateStamp`, `DateTimeOriginal` dengan zona), supaya geotag tetap terbaca pemutar galeri walau cap dipangkas. Berkas asli tanpa cap boleh disimpan lokal opsional (bukan diunggah).
 4. Foto tetap mengikuti `takenAtSec` (offset detik di audio) seperti sekarang.
 
-### 6.2 Kontrak server yang diusulkan (belum ada di server)
-Server saat ini menyimpan foto dengan `id, blobSha256, takenAtSec, caption, createdAt, deletedAt` saja (`PhotoInput`). Agar geotag terstruktur bisa dicari/ditampilkan di web dan ekspor, usulan penambahan **bidang opsional** pada `PhotoInput`/`Photo`:
+### 6.2 Kontrak server (sudah ada di server sejak 2026-11-03; migrasi 0010)
+**Geotag.** `PhotoInput` (dikirim lewat `PUT /v1/recordings/{id}/photos`) dan `Photo` (dalam `GET /v1/recordings/{id}`) punya bidang opsional:
 ```
-latitude:  number | null   (−90..90)
-longitude: number | null   (−180..180)
-accuracyM: number | null   (≥ 0)
-placeName: string | null   (≤ 200)
+latitude:  number | null   (-90..90)
+longitude: number | null   (-180..180)   // harus berpasangan dengan latitude, kalau tidak 400
+accuracyM: number | null   (>= 0, meter)
+placeName: string | null   (<= 200)
 ```
-Kompatibel mundur (opsional). Pekerjaan server (migrasi kolom, validasi, OpenAPI, tampilan peta/koordinat di web, ekspor DOCX/PDF memuat koordinat) akan dikerjakan di inteldes-web **setelah** app siap mengirimnya; beri tahu lewat repo ini bila format di atas perlu diubah. Sebelum itu, app cukup menaruh koordinat di cap foto dan di EXIF, dan boleh menambahkan ringkasan koordinat ke `caption` agar terlihat di web.
+Geotag ikut diperbarui bersama caption dan menit selama foto belum dihapus; foto yang sudah dihapus tidak berubah lagi. Respons selalu memuat keempat bidang (null bila tidak ada), jadi model Kotlin cukup memakai tipe nullable. Web menampilkannya sebagai tautan peta di bawah foto. Cap pada piksel foto (6.1) tetap pekerjaan app; server tidak menulis apa pun ke gambar.
+
+**Video singkat (fitur baru).** Dokumentasi berupa video pendek per rapat, mirip foto:
+- Unggah berkas lewat tus yang sama (`POST /v1/uploads`): `filetype` salah satu `video/mp4`, `video/webm`, `video/quicktime`, `video/3gpp`. **Batas**: ukuran maksimal **100 MB** (`Upload-Length` wajib diumumkan; lebih besar ditolak **413** saat unggahan dibuat, sebelum isi dikirim) dan panjang maksimal **120 detik** (diukur server dengan ffmpeg setelah unggahan selesai; lebih panjang ditolak **413** pada PATCH terakhir dan berkas dibuang, bukan video yang bisa dibaca **422**). Potong atau kompres di HP sebelum mengunggah; periksa batas di app lebih dulu agar pengguna tidak menunggu unggahan yang pasti ditolak. Batas dapat diatur server (`VIDEO_MAX_BYTES`, `VIDEO_MAX_SEC`), jadi tampilkan pesan dari server bila ditolak.
+- Daftarkan ke rapat: `PUT /v1/recordings/{id}/videos` body `{ videos: [VideoInput] }`, 204 bila sukses. `VideoInput`: `id` (UUID klien), `blobSha256`, `takenAtSec` (menit di audio, opsional), `caption` (<= 1000), geotag seperti foto, `createdAt`, `deletedAt`. Galat: **409 `blob_missing`** (unggah dulu, `details.missing`), **422 `not_video`** (bukan video atau melewati batas), **422 `too_many_videos`** (maksimal 20 video aktif per rapat). Penggabungan per UUID seperti foto (hapus mengalahkan edit).
+- Baca: `GET /v1/recordings/{id}` mengembalikan `videos[]`: `Video` = `VideoInput` + `durationSec` (diukur server), `sizeBytes`, `mime`. Putar lewat `GET /v1/blobs/{sha256}/url` lalu `GET` dengan header `Range` (ExoPlayer/Media3 bisa langsung memakainya).
+- Pemakaian di app: tombol "Rekam video" dan "Pilih video" pada layar rapat; kompres ke H.264/AAC resolusi <= 720p agar muat 100 MB; tampilkan sisa batas (mis. "maks 2 menit / 100 MB"); video ikut antrean unggah offline seperti foto.
+- Belum: video belum masuk ekspor DOCX/PDF dan tautan bagikan publik.
+
+**Penyimpanan di server.** Blob baru ditaruh di `tahun/bulan/tanggal/{audio|foto|video}/<sha256>` menurut hari unggah (WIB), dan blob lama dipindahkan dengan skrip penataan ulang. Ini internal server dan **tidak mengubah API**: app tetap memakai `sha256` dan `/v1/blobs/{sha256}/url`.
 
 Privasi: koordinat adalah data sensitif; sakelar default **mati**, jelaskan di layar izin bahwa koordinat ikut tersimpan di foto yang bisa dibagikan lewat tautan publik, dan jangan menyimpan koordinat bila izin ditolak.
 
