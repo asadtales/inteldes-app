@@ -65,7 +65,7 @@ import com.inteldes.app.data.model.RecordingStatus
 import com.inteldes.app.data.model.TranscriptSegment
 import com.inteldes.app.data.model.WhisperEngine
 import com.inteldes.app.ui.components.TranscribeOptionsDialog
-import com.inteldes.app.ui.components.TrimEditor
+import com.inteldes.app.ui.components.TrimStudio
 import com.inteldes.app.ui.components.KickerLabel
 import com.inteldes.app.ui.theme.IdColor
 import com.inteldes.app.ui.util.formatDuration
@@ -239,26 +239,36 @@ fun DetailScreen(
     if (showTrim) {
         val rec = state.recording
         val localContext = LocalContext.current
-        if (rec != null && state.templates.isNotEmpty()) {
-            TrimEditor(
-                durationSec = if (playback.ready && playback.durationSec > 0) playback.durationSec else rec.durationSec,
-                sourceTitle = rec.title,
+        val wave by vm.waveform.collectAsStateWithLifecycle()
+        var draft by remember { mutableStateOf<com.inteldes.app.ui.components.DraftInput?>(null) }
+        var draftLoaded by remember { mutableStateOf(false) }
+        // One length for the draft and the editor, so a draft made earlier is recognised again.
+        val trimDuration = if (rec == null) 0 else if (playback.ready && playback.durationSec > 0) playback.durationSec else rec.durationSec
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            vm.loadWaveform()
+            draft = vm.loadTrimDraft(trimDuration)?.let { com.inteldes.app.ui.components.DraftInput(it.state, it.savedAt) }
+            draftLoaded = true
+        }
+        if (rec != null && state.templates.isNotEmpty() && draftLoaded) {
+            TrimStudio(
+                recordingTitle = rec.title,
+                durationSec = trimDuration,
+                kind = rec.kind,
                 marks = state.marks,
                 playback = playback,
+                waveform = com.inteldes.app.ui.components.WaveformInput(wave.loading, wave.progress, wave.data, wave.error),
                 templates = state.templates,
                 defaultTemplateId = rec.templateId,
                 defaultEngine = rec.engine,
-                draft = vm.trimDraft(if (playback.ready && playback.durationSec > 0) playback.durationSec else rec.durationSec),
-                onDraftChange = vm::saveTrimDraft,
-                initialRange = trimFromSec?.let { from ->
-                    val total = if (playback.ready && playback.durationSec > 0) playback.durationSec else rec.durationSec
-                    // Like the web: a minute from the mark (to the next mark if that comes sooner), then adjustable.
-                    val next = state.marks.map { it.timestampSec }.filter { it > from }.minOrNull()
-                    com.inteldes.app.data.audio.TimeRange(from, minOf(next ?: Int.MAX_VALUE, from + 60, total))
-                },
+                initialDraft = draft,
+                startAtSec = trimFromSec?.toDouble(),
                 onTogglePlay = vm::togglePlayback,
-                onSeek = onSeek,
-                onDetectSilence = { noiseDb, minSilence, onResult -> vm.detectSilence(noiseDb, minSilence, onResult) },
+                onPause = vm::pausePlayback,
+                onSeekMs = vm::seekToMs,
+                onFastTick = vm::setFastTick,
+                onAnalyzeSilences = vm::analyzeSilences,
+                onDraftSave = { vm.saveTrimDraft(it, trimDuration) },
+                onDraftClear = vm::clearTrimDraft,
                 onDismiss = { showTrim = false },
                 onSave = { keep, title, template, engine, onResult -> vm.trimToNewRecording(keep, title, template, engine, onResult) },
                 onSaved = { newId, processNow ->

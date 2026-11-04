@@ -37,9 +37,9 @@ class MigrationTest {
         db.query("SELECT COUNT(*) FROM `$table`").use { it.moveToFirst(); it.getInt(0) }
 
     @Test
-    fun v7ToV9KeepsEveryRowAndMatchesTheSchema() {
+    fun v7ToV10KeepsEveryRowAndMatchesTheSchema() {
         helper.createDatabase(name, 7).apply { seedV7(this); close() }
-        val db = helper.runMigrationsAndValidate(name, 9, true, MIGRATION_7_8, MIGRATION_8_9)
+        val db = helper.runMigrationsAndValidate(name, 10, true, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
         assertEquals(1, count(db, "recordings"))
         assertEquals(2, count(db, "recording_marks"))
         assertEquals(1, count(db, "photos"))
@@ -63,6 +63,20 @@ class MigrationTest {
     }
 
     @Test
+    fun v9ToV10AddsAGeotagToPhotosWithoutTouchingTheRows() {
+        helper.createDatabase(name, 7).apply { seedV7(this); close() }
+        helper.runMigrationsAndValidate(name, 9, true, MIGRATION_7_8, MIGRATION_8_9).close()
+        val db = helper.runMigrationsAndValidate(name, 10, true, MIGRATION_9_10)
+        db.query("SELECT caption, latitude, longitude, accuracyM, placeName FROM photos").use { c ->
+            c.moveToFirst()
+            assertEquals("Foto 1", c.getString(0))
+            for (i in 1..4) assertTrue(c.isNull(i))
+        }
+        db.execSQL("UPDATE photos SET latitude=-7.1, longitude=110.2, accuracyM=8.5, placeName='Balai Desa'")
+        db.query("SELECT latitude, placeName FROM photos").use { c -> c.moveToFirst(); assertEquals(-7.1, c.getDouble(0), 0.0001); assertEquals("Balai Desa", c.getString(1)) }
+    }
+
+    @Test
     fun theAppOpensAV7FileThroughRoomWithAllItsMigrations() {
         helper.createDatabase(name, 7).apply { seedV7(this); close() }
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
@@ -72,7 +86,7 @@ class MigrationTest {
             .build()
         try {
             val db = room.openHelper.writableDatabase
-            assertEquals(9, db.version)
+            assertEquals(10, db.version)
             assertEquals(1, count(db, "recordings"))
         } finally {
             room.close()

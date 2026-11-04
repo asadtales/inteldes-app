@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-data class PlaybackState(val playing: Boolean = false, val positionSec: Int = 0, val durationSec: Int = 0, val ready: Boolean = false)
+data class PlaybackState(val playing: Boolean = false, val positionSec: Int = 0, val durationSec: Int = 0, val ready: Boolean = false, val positionMs: Int = 0)
 
 /** Plays back one recording's audio file — real [MediaPlayer], backing the Transkrip tab's play/pause control. */
 class AudioPlayerManager {
@@ -19,6 +19,9 @@ class AudioPlayerManager {
 
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state
+
+    /** How often the position is published while playing: 500 ms normally, faster while the trim editor moves a playhead. */
+    @Volatile var tickMs: Long = 500
 
     /**
      * [fallbackDurationSec]: audio recorded in a browser (webm) carries no duration, so MediaPlayer says 0 and the
@@ -52,9 +55,18 @@ class AudioPlayerManager {
         }
     }
 
-    fun seekTo(sec: Int) {
-        player?.seekTo(sec * 1000)
-        _state.value = _state.value.copy(positionSec = sec)
+    fun seekTo(sec: Int) = seekToMs(sec * 1000)
+
+    fun seekToMs(ms: Int) {
+        val target = ms.coerceAtLeast(0)
+        // exact, not "the nearest earlier sync frame": the trim editor jumps to the start of a kept part and must land on it
+        player?.let { if (android.os.Build.VERSION.SDK_INT >= 26) it.seekTo(target.toLong(), MediaPlayer.SEEK_CLOSEST) else it.seekTo(target) }
+        _state.value = _state.value.copy(positionSec = target / 1000, positionMs = target)
+    }
+
+    fun pause() {
+        val mp = player ?: return
+        if (mp.isPlaying) togglePlay()
     }
 
     /** Jumps [deltaSec] from the player's live position (negative = back), clamped to the recording. */
@@ -63,15 +75,16 @@ class AudioPlayerManager {
         val durationMs = if (mp.duration > 0) mp.duration else _state.value.durationSec * 1000
         val target = (mp.currentPosition + deltaSec * 1000).coerceIn(0, durationMs.coerceAtLeast(0))
         mp.seekTo(target)
-        _state.value = _state.value.copy(positionSec = target / 1000)
+        _state.value = _state.value.copy(positionSec = target / 1000, positionMs = target)
     }
 
     private fun startTicking() {
         tickJob?.cancel()
         tickJob = scope.launch {
             while (player?.isPlaying == true) {
-                _state.value = _state.value.copy(positionSec = (player?.currentPosition ?: 0) / 1000)
-                delay(500)
+                val ms = player?.currentPosition ?: 0
+                _state.value = _state.value.copy(positionSec = ms / 1000, positionMs = ms)
+                delay(tickMs)
             }
         }
     }

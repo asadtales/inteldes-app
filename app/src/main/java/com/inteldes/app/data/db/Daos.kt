@@ -156,6 +156,10 @@ interface PhotoDao {
     @Query("UPDATE photos SET caption = :caption WHERE id = :id")
     suspend fun updateCaption(id: Long, caption: String)
 
+    /** Also pins the web id: a derived id can change with the content, the geotag must stay with the same photo. */
+    @Query("UPDATE photos SET latitude = :lat, longitude = :lng, accuracyM = :acc, placeName = :place, uuid = :uuid WHERE id = :id")
+    suspend fun setGeotag(id: Long, lat: Double, lng: Double, acc: Double?, place: String?, uuid: String?)
+
     @Query("DELETE FROM photos WHERE id = :id")
     suspend fun delete(id: Long)
 

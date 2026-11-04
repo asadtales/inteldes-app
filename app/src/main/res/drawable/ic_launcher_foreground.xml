@@ -4,7 +4,9 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- The web icon (32x32: three white bars at x 8, 14, 20, 4 wide, y 8..24) scaled to the 108 canvas; it stays
+         inside the 66dp safe zone of an adaptive icon. -->
     <path
-        android:fillColor="#EC3013"
-        android:pathData="M39,30 L69,30 C74,30 78,34 78,39 L78,58 C78,63 74,67 69,67 L52,67 L40,78 L40,67 L39,67 C34,67 30,63 30,58 L30,39 C30,34 34,30 39,30 Z" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M27,27h13.5v54h-13.5zM47.25,27h13.5v54h-13.5zM67.5,27h13.5v54h-13.5z" />
 </vector>

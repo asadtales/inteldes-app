@@ -127,7 +127,7 @@ fun HomeScreen(
                 }
             }
             Spacer(Modifier.height(10.dp))
-            Text("Arsip rapat", style = MaterialTheme.typography.headlineLarge)
+            Text("Arsip", style = MaterialTheme.typography.headlineLarge)
             Spacer(Modifier.height(4.dp))
             Text(
                 "${state.allCount} rekaman" +

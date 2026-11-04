@@ -1,6 +1,7 @@
 package com.inteldes.app.data.repository
 
 import com.inteldes.app.data.audio.AudioTrimmer
+import com.inteldes.app.data.audio.Span
 import com.inteldes.app.data.audio.TimeRange
 import com.inteldes.app.data.audio.TrimPlan
 import com.inteldes.app.data.db.CategoryEntity
@@ -263,6 +264,16 @@ class RecordingRepository(private val db: IntelDesDatabase) {
         title: String = "${source.title} (hasil potong)",
         template: NoteTemplate? = null,
         engine: WhisperEngine = source.engine,
+    ): String = createTrimmedFromSpans(source, keep.map { Span(it.start.toDouble(), it.end.toDouble()) }, outputDir, title, template, engine)
+
+    /** Same, with parts in fractional seconds (the trim editor). The new recording's length is read from the file it wrote. */
+    suspend fun createTrimmedFromSpans(
+        source: Recording,
+        keep: List<Span>,
+        outputDir: File,
+        title: String = "${source.title} (hasil potong)",
+        template: NoteTemplate? = null,
+        engine: WhisperEngine = source.engine,
     ): String =
         withContext(Dispatchers.IO) {
             require(keep.isNotEmpty()) { "Tidak ada bagian yang disimpan." }
@@ -274,12 +285,12 @@ class RecordingRepository(private val db: IntelDesDatabase) {
             val output = AudioTrimmer.outputFor(sourceFile)
                 ?: throw AudioTrimmer.UnsupportedFormatException("Format audio ini (${source.audioMimeType}) belum bisa dipotong di HP.")
             val dest = File(outputDir, "trim_${System.currentTimeMillis()}.${output.extension}")
-            AudioTrimmer.trimRanges(sourceFile, dest, keep)
+            AudioTrimmer.trimSpans(sourceFile, dest, keep)
 
             val id = insertRecording(
                 title = title.ifBlank { "${source.title} (hasil potong)" },
                 kind = source.kind,
-                durationSec = TrimPlan.totalSec(keep),
+                durationSec = Math.round(AudioTrimmer.durationOf(dest) ?: keep.sumOf { it.length }).toInt().coerceAtLeast(1),
                 audioFilePath = dest.absolutePath,
                 audioMimeType = output.mimeType,
                 engine = engine,
@@ -289,11 +300,20 @@ class RecordingRepository(private val db: IntelDesDatabase) {
             )
             val now = System.currentTimeMillis()
             db.recordingMarkDao().observeForRecording(source.id).first().forEach { mark ->
-                val at = TrimPlan.remapMark(mark.timestampSec, keep) ?: return@forEach
+                val at = remapMark(mark.timestampSec.toDouble(), keep)?.let { Math.round(it).toInt() } ?: return@forEach
                 db.recordingMarkDao().insert(RecordingMarkEntity(recordingId = id, timestampSec = at, label = mark.label, createdAt = now))
             }
             id
         }
+
+    private fun remapMark(timestampSec: Double, keep: List<Span>): Double? {
+        var before = 0.0
+        for (s in keep) {
+            if (timestampSec >= s.start && timestampSec <= s.end) return before + (timestampSec - s.start)
+            before += s.length
+        }
+        return null
+    }
 
     fun observeMarks(id: String): Flow<List<RecordingMark>> =
         db.recordingMarkDao().observeForRecording(id).map { list -> list.map { it.toDomain() } }

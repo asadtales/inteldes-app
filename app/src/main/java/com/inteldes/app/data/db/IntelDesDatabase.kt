@@ -29,7 +29,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ContextSourceEntity::class,
         WebSyncStateEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -51,7 +51,7 @@ abstract class IntelDesDatabase : RoomDatabase() {
 
         /** Every step from the first release to [version]; also what the migration test runs. */
         internal val ALL_MIGRATIONS: Array<Migration> by lazy {
-            arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+            arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
         }
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -107,7 +107,7 @@ abstract class IntelDesDatabase : RoomDatabase() {
                 val file = context.getDatabasePath("inteldes.db")
                 if (!file.exists()) return
                 val old = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { it.version }
-                if (old <= 0 || old >= 9) return
+                if (old <= 0 || old >= 10) return
                 val bak = java.io.File(file.parentFile, "inteldes_v$old.bak")
                 if (!bak.exists()) {
                     // The WAL may hold recent writes, so checkpoint through a normal open first.

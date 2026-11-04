@@ -36,7 +36,10 @@ interface WebRemote {
 class LocalCategory(val id: String, val label: String, val orderIndex: Int)
 
 /** A photo as the phone holds it: [id] is the server's id (or the content-derived one), [file] the image. */
-class LocalPhoto(val id: String, val file: File, val takenAtSec: Int?, val caption: String, val createdAt: Long)
+class LocalPhoto(
+    val id: String, val file: File, val takenAtSec: Int?, val caption: String, val createdAt: Long,
+    val latitude: Double? = null, val longitude: Double? = null, val accuracyM: Double? = null, val placeName: String? = null,
+)
 
 /** A recording as the phone holds it, in the shapes the server takes. */
 class LocalAggregate(
@@ -519,10 +522,11 @@ class WebSyncEngine(
         for (p in agg.photos) {
             val sha = sha256(p.file)
             if (!remote.blobExists(sha)) remote.uploadBlob(sha, mimeOf(p.file), p.file)
-            list += WebPhoto(p.id, sha, p.takenAtSec?.coerceAtLeast(0), p.caption.take(1000), p.createdAt)
+            list += WebPhoto(p.id, sha, p.takenAtSec?.coerceAtLeast(0), p.caption.take(1000), p.createdAt,
+                latitude = p.latitude, longitude = p.longitude, accuracyM = p.accuracyM, placeName = p.placeName?.take(200))
         }
         val now = System.currentTimeMillis()
-        val gone = before.filter { b -> agg.photos.none { it.id == b.id } }.map { WebPhoto(it.id, shaOf.getValue(it.id), it.takenAtSec, it.caption, it.createdAt, deletedAt = now) }
+        val gone = before.filter { b -> agg.photos.none { it.id == b.id } }.map { WebPhoto(it.id, shaOf.getValue(it.id), it.takenAtSec, it.caption, it.createdAt, deletedAt = now, latitude = it.latitude, longitude = it.longitude, accuracyM = it.accuracyM, placeName = it.placeName) }
         if (list.isNotEmpty() || gone.isNotEmpty()) remote.putPhotos(id, list + gone)
         return gson.toJson(list)
     }
@@ -568,7 +572,8 @@ class WebSyncEngine(
         notes = sha256(gson.toJson(agg.sections)),
         marks = sha256(gson.toJson(agg.marks.sortedBy { it.id })),
         chat = sha256(gson.toJson(agg.chat.sortedBy { it.id })),
-        photos = sha256(gson.toJson(agg.photos.sortedBy { it.id }.map { listOf(it.id, it.takenAtSec, it.caption, it.createdAt, it.file.length()) })),
+        // A geotag only enters the hash when there is one, so photos without it keep the hash they always had (no needless resend).
+        photos = sha256(gson.toJson(agg.photos.sortedBy { it.id }.map { p -> listOf(p.id, p.takenAtSec, p.caption, p.createdAt, p.file.length()) + (if (p.latitude != null) listOf(p.latitude, p.longitude, p.accuracyM, p.placeName) else emptyList()) })),
     )
 
     private fun fail(report: WebSyncReport, what: String, e: Exception) {

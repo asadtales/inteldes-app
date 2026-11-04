@@ -109,7 +109,7 @@ class WebSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
             manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Sinkron ke web", NotificationManager.IMPORTANCE_LOW))
         }
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_mic)
+            .setSmallIcon(R.drawable.ic_stat_inteldes)
             .setContentTitle("Sinkron ke web IntelDes")
             .setContentText("Mengirim / mengambil rekaman…")
             .setOngoing(true)

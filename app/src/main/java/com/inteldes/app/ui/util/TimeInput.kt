@@ -27,3 +27,27 @@ fun validRange(startText: String, endText: String, durationSec: Int): Pair<Int, 
     val end = parseClock(endText) ?: return null
     return if (start in 0 until end && end <= durationSec) start to end else null
 }
+
+/** "mm:ss.d" (or "h:mm:ss.d" past an hour); [withFraction] false drops the tenths. */
+fun formatClockD(totalSec: Double, withFraction: Boolean = true): String {
+    val t = totalSec.coerceAtLeast(0.0)
+    val whole = t.toLong()
+    val tenth = ((t - whole) * 10).toInt().coerceIn(0, 9)
+    val h = whole / 3600
+    val m = (whole % 3600) / 60
+    val s = whole % 60
+    val base = if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+    return if (withFraction) "$base.$tenth" else base
+}
+
+/** Accepts "ss", "ss.d", "mm:ss", "mm:ss.d" and "h:mm:ss(.d)"; null if empty or malformed. */
+fun parseClockD(text: String): Double? {
+    val t = text.trim()
+    if (t.isEmpty()) return null
+    val parts = t.split(":")
+    if (parts.size > 3 || parts.any { it.isEmpty() }) return null
+    val last = parts.last().toDoubleOrNull() ?: return null
+    val head = parts.dropLast(1).map { if (it.all(Char::isDigit)) it.toLong() else return null }
+    if (last < 0) return null
+    return head.fold(0.0) { acc, v -> acc * 60 + v } * 60 + last
+}

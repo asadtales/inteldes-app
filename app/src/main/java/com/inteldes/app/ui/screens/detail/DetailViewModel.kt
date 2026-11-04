@@ -93,11 +93,69 @@ class DetailViewModel(
 
     private val app get() = appContext.applicationContext as com.inteldes.app.IntelDesApp
 
-    /** True while an unfinished trim of this recording is saved (marks its scissors button). */
+    /** True while an unfinished trim of this recording is saved on this phone (marks its scissors button). */
     val hasTrimDraft: StateFlow<Boolean> = app.trimDrafts.ids.map { recordingId in it }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
-    fun trimDraft(durationSec: Int) = app.trimDrafts.get(recordingId, durationSec)
-    fun saveTrimDraft(draft: com.inteldes.app.data.audio.TrimDraft?) {
-        if (draft == null) app.trimDrafts.clear(recordingId) else app.trimDrafts.put(recordingId, draft)
+
+    class LoadedDraft(val state: com.inteldes.app.data.audio.TrimDraftState, val savedAt: Long)
+
+    /** Whether the trim draft may also live on the server: signed in, allowed to write, and the recording is there. */
+    private suspend fun serverDraftPossible(): Boolean {
+        val me = app.accountService.session.value ?: return false
+        return me.role != "pembaca" && app.webSyncStore.enabled && app.webSyncStore.get(recordingId) != null
+    }
+
+    /** The saved trim: the newer of the copy on this phone and the one on the server (so it can be continued from another device). */
+    suspend fun loadTrimDraft(durationSec: Int): LoadedDraft? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val local = app.trimDrafts.get(recordingId, durationSec)?.let { LoadedDraft(it.state, it.savedAt) }
+        val remote = runCatching {
+            if (!serverDraftPossible()) null
+            else com.inteldes.app.data.web.WebApi(app.accountService.api).getTrimDraft(recordingId)?.let { (json, at) ->
+                com.inteldes.app.data.audio.TrimDraftState.fromJson(json)?.let { LoadedDraft(it, at) }
+            }
+        }.getOrNull()
+        listOfNotNull(local, remote).maxByOrNull { it.savedAt }
+    }
+
+    /** Keeps the draft on this phone and, when possible, on the server. Returns whether the server copy is current (null = not applicable). */
+    suspend fun saveTrimDraft(state: com.inteldes.app.data.audio.TrimDraftState, durationSec: Int): Boolean? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        app.trimDrafts.put(recordingId, com.inteldes.app.data.audio.StoredDraft(durationSec, System.currentTimeMillis(), state))
+        if (!serverDraftPossible()) null
+        else runCatching { com.inteldes.app.data.web.WebApi(app.accountService.api).putTrimDraft(recordingId, com.inteldes.app.data.audio.TrimDraftState.toJson(state)) }.isSuccess
+    }
+
+    fun clearTrimDraft() {
+        app.trimDrafts.clear(recordingId)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { if (serverDraftPossible()) com.inteldes.app.data.web.WebApi(app.accountService.api).deleteTrimDraft(recordingId) }
+        }
+    }
+
+    // ───────────────────────── waveform of the trim editor ─────────────────────────
+
+    data class WaveformUi(val loading: Boolean = false, val progress: Float = 0f, val data: com.inteldes.app.data.audio.WaveformData? = null, val error: String? = null)
+
+    private val _waveform = MutableStateFlow(WaveformUi())
+    val waveform: StateFlow<WaveformUi> = _waveform
+
+    /** Reads the waveform from the cache, or builds it from the audio file (a long meeting takes a while; progress is shown). */
+    fun loadWaveform() {
+        if (_waveform.value.data != null || _waveform.value.loading) return
+        _waveform.value = WaveformUi(loading = true)
+        viewModelScope.launch {
+            _waveform.value = try {
+                val data = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val rec = repository.getRecording(recordingId) ?: error("Rekaman tidak ditemukan.")
+                    val file = rec.audioFilePath?.let { java.io.File(it) }?.takeIf { it.exists() } ?: error("Berkas audio tidak ditemukan di perangkat.")
+                    val key = "${recordingId}_${file.length()}"
+                    com.inteldes.app.data.audio.WaveformBuilder.cached(appContext, key)
+                        ?: com.inteldes.app.data.audio.WaveformBuilder.build(file, rec.durationSec) { p -> _waveform.value = WaveformUi(loading = true, progress = p) }
+                            .also { com.inteldes.app.data.audio.WaveformBuilder.store(appContext, key, it) }
+                }
+                WaveformUi(data = data)
+            } catch (e: Exception) {
+                WaveformUi(error = e.message ?: "Gelombang tidak bisa dibuat.")
+            }
+        }
     }
 
     /** Progress or failure of this recording's processing on the server, if one was started. */
@@ -211,14 +269,14 @@ class DetailViewModel(
         viewModelScope.launch { repository.deleteMark(mark, recordingId) }
     }
 
-    /** Speech ranges of this recording found on the phone (see [com.inteldes.app.data.audio.SilenceDetector]). */
-    fun detectSilence(noiseDb: Int, minSilenceSec: Int, onResult: (Result<List<com.inteldes.app.data.audio.TimeRange>>) -> Unit) {
+    /** The quiet stretches of this recording, found on the phone (works offline). */
+    fun analyzeSilences(noiseDb: Int, minSilenceSec: Int, onResult: (Result<List<com.inteldes.app.data.audio.Silence>>) -> Unit) {
         viewModelScope.launch {
             val result = runCatching {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     val rec = repository.getRecording(recordingId) ?: error("Rekaman tidak ditemukan.")
                     val file = rec.audioFilePath?.let { java.io.File(it) }?.takeIf { it.exists() } ?: error("Berkas audio tidak ditemukan di perangkat.")
-                    com.inteldes.app.data.audio.SilenceDetector.analyze(file, rec.durationSec, noiseDb, minSilenceSec)
+                    com.inteldes.app.data.audio.SilenceDetector.analyzeSilences(file, rec.durationSec, noiseDb, minSilenceSec)
                 }
             }
             onResult(result)
@@ -226,11 +284,11 @@ class DetailViewModel(
     }
 
     /**
-     * Saves the [keep] stretches as a new recording (the original is never touched), applies the chosen
-     * template and engine, and reports the new id — or the failure — through [onResult].
+     * Saves the [keep] parts as a new recording (the original is never touched), applies the chosen template and
+     * engine, and reports the new id, or the failure, through [onResult].
      */
     fun trimToNewRecording(
-        keep: List<com.inteldes.app.data.audio.TimeRange>,
+        keep: List<com.inteldes.app.data.audio.Span>,
         title: String,
         template: com.inteldes.app.data.model.NoteTemplate,
         engine: com.inteldes.app.data.model.WhisperEngine,
@@ -240,21 +298,21 @@ class DetailViewModel(
             val result = runCatching {
                 val source = repository.getRecording(recordingId) ?: error("Rekaman tidak ditemukan.")
                 try {
-                    repository.createTrimmedRecording(source, keep, java.io.File(appContext.filesDir, "recordings"), title, template, engine)
+                    repository.createTrimmedFromSpans(source, keep, java.io.File(appContext.filesDir, "recordings"), title, template, engine)
                 } catch (e: com.inteldes.app.data.audio.AudioTrimmer.UnsupportedFormatException) {
-                    trimOnServer(source, keep, title, template, engine, e)       // mp3, wav…: the phone cannot cut these, the server can
+                    trimOnServer(source, keep, title, template, engine, e)       // mp3, wav: the phone cannot cut these, the server can
                 }
-            }.onSuccess { app.trimDrafts.clear(recordingId) }
+            }.onSuccess { clearTrimDraft() }
             onResult(result)
         }
     }
 
     /**
-     * Cuts a recording the phone cannot cut itself (mp3, wav…) on the server: sends this one recording, has the
+     * Cuts a recording the phone cannot cut itself (mp3, wav) on the server: sends this one recording, has the
      * server cut it into a new recording, and brings that back. Needs the same things as processing on the server.
      */
     private suspend fun trimOnServer(
-        source: com.inteldes.app.data.model.Recording, keep: List<com.inteldes.app.data.audio.TimeRange>, title: String,
+        source: com.inteldes.app.data.model.Recording, keep: List<com.inteldes.app.data.audio.Span>, title: String,
         template: com.inteldes.app.data.model.NoteTemplate, engine: com.inteldes.app.data.model.WhisperEngine,
         phoneError: Exception,
     ): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -282,6 +340,11 @@ class DetailViewModel(
         repository.setEngine(newId, engine)
         newId
     }
+
+    /** Playback at the precision the trim editor needs, and how often the position is published meanwhile. */
+    fun seekToMs(ms: Int) = player.seekToMs(ms)
+    fun pausePlayback() = player.pause()
+    fun setFastTick(fast: Boolean) { player.tickMs = if (fast) 60 else 500 }
 
     override fun onCleared() {
         super.onCleared()

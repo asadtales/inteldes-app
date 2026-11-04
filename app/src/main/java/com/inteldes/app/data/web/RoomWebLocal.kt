@@ -53,7 +53,7 @@ class RoomWebLocal(context: Context, private val db: IntelDesDatabase) : WebLoca
             audioFile = r.audioFilePath?.let(::File)?.takeIf { it.exists() && it.length() > 0 },
             photos = db.photoDao().list(id).mapNotNull { p ->
                 val f = File(p.filePath).takeIf { it.exists() && it.length() > 0 } ?: return@mapNotNull null
-                LocalPhoto(photoId(id, p), f, p.takenAtSec, p.caption, p.createdAt)
+                LocalPhoto(photoId(id, p), f, p.takenAtSec, p.caption, p.createdAt, p.latitude, p.longitude, p.accuracyM, p.placeName)
             },
         )
     }
@@ -160,10 +160,24 @@ class RoomWebLocal(context: Context, private val db: IntelDesDatabase) : WebLoca
                 db.chatDao().insert(ChatMessageEntity(recordingId = id, orderIndex = it.orderIndex, isUser = it.isUser, text = it.text, createdAt = it.createdAt, uuid = it.id))
             }
 
-            val photoIds = db.photoDao().list(id).map { photoId(id, it) }.toSet()
+            val localPhotos = db.photoDao().list(id)
+            val photoIds = localPhotos.map { photoId(id, it) }.toSet()
             server.photos.filter { it.deletedAt == null && it.id !in photoIds }.forEach { p ->
                 val file = photoFiles[p.id] ?: return@forEach
-                db.photoDao().insert(PhotoEntity(recordingId = id, filePath = file.absolutePath, takenAtSec = p.takenAtSec, caption = p.caption, createdAt = p.createdAt, uuid = p.id))
+                db.photoDao().insert(
+                    PhotoEntity(
+                        recordingId = id, filePath = file.absolutePath, takenAtSec = p.takenAtSec, caption = p.caption, createdAt = p.createdAt, uuid = p.id,
+                        latitude = p.latitude, longitude = p.longitude, accuracyM = p.accuracyM, placeName = p.placeName,
+                    ),
+                )
+            }
+            // A geotag added on the server to a photo the phone already has comes down; the phone never sends a photo
+            // without it afterwards (that would erase it there). A geotag the phone holds itself is never replaced.
+            localPhotos.forEach { lp ->
+                val s = server.photos.firstOrNull { it.id == photoId(id, lp) && it.deletedAt == null } ?: return@forEach
+                if (lp.latitude == null && s.latitude != null && s.longitude != null) {
+                    db.photoDao().setGeotag(lp.id, s.latitude, s.longitude, s.accuracyM, s.placeName, if (lp.uuid == null) s.id else lp.uuid)
+                }
             }
         }
     }

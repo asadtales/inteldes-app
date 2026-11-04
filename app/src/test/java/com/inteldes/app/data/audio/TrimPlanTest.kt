@@ -80,4 +80,10 @@ class TrimPlanTest {
         assertEquals("Rapat (potongan 1:00:00–1:02:05)", TrimPlan.defaultTitle("Rapat", listOf(r(3600, 3725))))
         assertEquals("Rapat (potongan 3 rentang)", TrimPlan.defaultTitle("Rapat", listOf(r(0, 10), r(20, 30), r(40, 50))))
     }
+
+    @Test
+    fun aCutOfACutDoesNotPileUpTheSuffix() {
+        assertEquals("Rapat (potongan 3 rentang)", TrimPlan.defaultTitle("Rapat (potongan 3 rentang)", listOf(r(0, 10), r(20, 30), r(40, 50))))
+        assertEquals("Rapat (potongan 00:00–00:10)", TrimPlan.defaultTitle("Rapat (potongan 03:20–05:10) (potongan 2 rentang)", listOf(r(0, 10))))
+    }
 }

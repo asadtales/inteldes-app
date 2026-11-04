@@ -93,7 +93,7 @@ class RecordingService : Service() {
             .setContentText(
                 if (markCount > 0) "$markCount penanda tersimpan. Ketuk untuk kembali ke rapat." else "Ketuk untuk kembali ke rapat yang sedang direkam.",
             )
-            .setSmallIcon(R.drawable.ic_mic)
+            .setSmallIcon(R.drawable.ic_stat_inteldes)
             .setOngoing(true)
             .setContentIntent(openIntent)
             .addAction(0, "TANDAI", markIntent)

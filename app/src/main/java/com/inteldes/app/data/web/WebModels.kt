@@ -60,7 +60,11 @@ data class WebRecordingInput(
 data class WebSegment(val id: String, val orderIndex: Int, val speaker: String, val timestampSec: Int, val text: String)
 data class WebSection(val id: String, val orderIndex: Int, val title: String, val type: String, val payload: JsonElement)
 data class WebMark(val id: String, val timestampSec: Int, val label: String, val createdAt: Long, val deletedAt: Long? = null)
-data class WebPhoto(val id: String, val blobSha256: String, val takenAtSec: Int?, val caption: String, val createdAt: Long, val deletedAt: Long? = null)
+data class WebPhoto(
+    val id: String, val blobSha256: String, val takenAtSec: Int?, val caption: String, val createdAt: Long, val deletedAt: Long? = null,
+    /** Geotag the server holds (null = none). Sent back unchanged: a photo sent WITHOUT it would erase it on the server. */
+    val latitude: Double? = null, val longitude: Double? = null, val accuracyM: Double? = null, val placeName: String? = null,
+)
 data class WebChat(val id: String, val orderIndex: Int, val isUser: Boolean, val text: String, val createdAt: Long)
 
 data class WebTranscriptPart(val version: Int, val segments: List<WebSegment>)

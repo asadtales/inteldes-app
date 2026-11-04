@@ -44,8 +44,25 @@ object AudioTrimmer {
 
     /** Copies [ranges] (sorted, not overlapping — see [TrimPlan.normalize]) back to back into [destination]. */
     @Throws(IOException::class)
-    fun trimRanges(source: File, destination: File, ranges: List<TimeRange>) {
-        require(ranges.isNotEmpty() && ranges.all { it.end > it.start }) { "Rentang potong tidak valid." }
+    fun trimRanges(source: File, destination: File, ranges: List<TimeRange>) =
+        trimSpans(source, destination, ranges.map { Span(it.start.toDouble(), it.end.toDouble()) })
+
+    /** The length of an audio file in seconds as its own track reports it, or null when it does not say. */
+    fun durationOf(file: File): Double? {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(file.absolutePath)
+            (0 until extractor.trackCount).firstNotNullOfOrNull { i ->
+                val f = extractor.getTrackFormat(i)
+                if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true && f.containsKey(MediaFormat.KEY_DURATION)) f.getLong(MediaFormat.KEY_DURATION) / 1_000_000.0 else null
+            }
+        } catch (e: Exception) { null } finally { extractor.release() }
+    }
+
+    /** Copies [spans] (seconds, fractions allowed; sorted, not overlapping) back to back into [destination]. */
+    @Throws(IOException::class)
+    fun trimSpans(source: File, destination: File, spans: List<Span>) {
+        require(spans.isNotEmpty() && spans.all { it.end > it.start }) { "Rentang potong tidak valid." }
         val extractor = MediaExtractor()
         var muxer: MediaMuxer? = null
         var muxerStarted = false
@@ -79,9 +96,9 @@ object AudioTrimmer {
             val buffer = ByteBuffer.allocate(1 shl 20)
             // Where the next stretch starts on the new file's own timeline, so the pieces play back to back.
             var outputOffsetUs = 0L
-            for (range in ranges) {
-                val startUs = range.start.toLong() * 1_000_000L
-                val endUs = range.end.toLong() * 1_000_000L
+            for (range in spans) {
+                val startUs = (range.start * 1_000_000.0).toLong()
+                val endUs = (range.end * 1_000_000.0).toLong()
                 // Land on or before the start, then skip forward: a closest-sync seek can land after it and drop the first words.
                 extractor.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
                 while (true) {

@@ -3,7 +3,7 @@
 Builds a v7 database from schemas/7.json, fills it with rows, runs the SQL that the Kotlin migrations execute
 (read from Migration7To8.kt / Migration8To9.kt), then checks that
   * no row was lost or changed,
-  * the resulting tables have the same columns, nullability, defaults and indices as schemas/9.json.
+  * the resulting tables have the same columns, nullability, defaults and indices as schemas/10.json.
 
 Run:  python -X utf8 -I tools/verify_migration.py
 """
@@ -75,7 +75,7 @@ def main():
     before = {t: table_dump(conn, t) for t in seeded}
 
     # --- run the real migrations' SQL
-    steps = [(7, 8, "Migration7To8.kt"), (8, 9, "Migration8To9.kt")]
+    steps = [(7, 8, "Migration7To8.kt"), (8, 9, "Migration8To9.kt"), (9, 10, "Migration9To10.kt")]
     for old, new, name in steps:
         stmts = kotlin_sql(os.path.join(DB_DIR, name))
         if not stmts:
@@ -103,8 +103,8 @@ def main():
         if extra:
             print(f"{table}: new columns {extra}, values {[tuple(r[ncols.index(c)] for c in extra) for r in nrows][:1]}")
 
-    # --- same shape as schemas/9.json
-    for e in schema(9)["entities"]:
+    # --- same shape as schemas/10.json
+    for e in schema(10)["entities"]:
         t = e["tableName"]
         info = {r[1]: r for r in conn.execute(f"PRAGMA table_info(`{t}`)")}
         want = {f["columnName"]: f for f in e["fields"]}
@@ -125,7 +125,7 @@ def main():
         if have_ix != want_ix:
             problems.append(f"{t}: indices differ db={sorted(have_ix)} schema={sorted(want_ix)}")
     have_tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%'")}
-    want_tables = {e["tableName"] for e in schema(9)["entities"]}
+    want_tables = {e["tableName"] for e in schema(10)["entities"]}
     if have_tables != want_tables:
         problems.append(f"tables differ: only-db={sorted(have_tables-want_tables)} only-schema={sorted(want_tables-have_tables)}")
 
@@ -139,7 +139,7 @@ def main():
         for p in problems:
             print(" -", p)
         return 1
-    print("OK: v7 data intact after 7->8->9 and the layout matches schemas/9.json")
+    print("OK: v7 data intact after 7->8->9->10 and the layout matches schemas/10.json")
     return 0
 
 

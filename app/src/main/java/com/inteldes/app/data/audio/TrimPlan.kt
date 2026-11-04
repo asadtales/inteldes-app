@@ -65,10 +65,14 @@ object TrimPlan {
     fun totalSec(keep: List<TimeRange>): Int = keep.sumOf { it.length }
 
     /** "Rapat (potongan 03:20–05:10)" for one stretch, "Rapat (potongan 3 rentang)" for several. */
-    fun defaultTitle(sourceTitle: String, keep: List<TimeRange>): String = when (keep.size) {
-        0 -> "$sourceTitle (potongan)"
-        1 -> "$sourceTitle (potongan ${clock(keep[0].start)}–${clock(keep[0].end)})"
-        else -> "$sourceTitle (potongan ${keep.size} rentang)"
+    fun defaultTitle(rawTitle: String, keep: List<TimeRange>): String {
+        // A title that already ends in "(potongan …)" is a cut of a cut: do not pile the suffixes up.
+        val sourceTitle = rawTitle.replace(Regex("""(\s*\(potongan [^)]*\))+$"""), "").ifBlank { rawTitle }
+        return when (keep.size) {
+            0 -> "$sourceTitle (potongan)"
+            1 -> "$sourceTitle (potongan ${clock(keep[0].start)}–${clock(keep[0].end)})"
+            else -> "$sourceTitle (potongan ${keep.size} rentang)"
+        }
     }
 
     private fun clock(totalSec: Int): String {

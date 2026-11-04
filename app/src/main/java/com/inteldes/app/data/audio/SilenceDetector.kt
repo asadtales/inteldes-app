@@ -77,7 +77,11 @@ object SilenceDetector {
      * Reads [file] ten minutes at a time (a whole meeting as PCM would not fit in memory) and returns the speech
      * ranges. Slow-ish for long recordings; call off the main thread.
      */
-    fun analyze(file: File, durationSec: Int, noiseDb: Int, minSilenceSec: Int, padSec: Double = 0.5): List<TimeRange> {
+    fun analyze(file: File, durationSec: Int, noiseDb: Int, minSilenceSec: Int, padSec: Double = 0.5): List<TimeRange> =
+        speechRanges(analyzeSilences(file, durationSec, noiseDb, minSilenceSec), durationSec, padSec)
+
+    /** The quiet stretches themselves (what the analysis panel lists), found the same way. */
+    fun analyzeSilences(file: File, durationSec: Int, noiseDb: Int, minSilenceSec: Int): List<Silence> {
         val db = ArrayList<Float>((durationSec / WINDOW_SEC).toInt() + 1)
         var start = 0
         while (start < durationSec) {
@@ -89,6 +93,6 @@ object SilenceDetector {
             windowDb(exact).forEach { db += it }
             start = end
         }
-        return speechRanges(silences(db.toFloatArray(), noiseDb, minSilenceSec.toDouble()), durationSec, padSec)
+        return silences(db.toFloatArray(), noiseDb, minSilenceSec.toDouble())
     }
 }

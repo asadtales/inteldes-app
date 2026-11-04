@@ -166,7 +166,7 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
     private fun foregroundInfo(title: String): ForegroundInfo {
         ensureChannel()
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_mic)
+            .setSmallIcon(R.drawable.ic_stat_inteldes)
             .setContentTitle("Memproses rekaman")
             .setContentText(title)
             .setOngoing(true)

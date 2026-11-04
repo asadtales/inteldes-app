@@ -151,6 +151,11 @@ data class PhotoEntity(
     val createdAt: Long,
     /** Id the web server knows this photo by; null = derive it from the content (see WebIds). */
     val uuid: String? = null,
+    /** Geotag (WGS84) as the server holds it; null = none. Kept so a sync never wipes a geotag set elsewhere. */
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val accuracyM: Double? = null,
+    val placeName: String? = null,
 )
 
 @Entity(

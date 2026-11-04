@@ -67,7 +67,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
             manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Sinkronisasi Drive", NotificationManager.IMPORTANCE_LOW))
         }
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_mic)
+            .setSmallIcon(R.drawable.ic_stat_inteldes)
             .setContentTitle("Sinkronisasi Google Drive")
             .setContentText("Mengunggah / mengunduh rekaman…")
             .setOngoing(true)

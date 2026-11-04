@@ -99,8 +99,9 @@ class WebApi(
      * Cuts the recording on the server (ffmpeg, no re-encoding) into a NEW recording and returns its id. The source
      * must already be there with its audio. [ranges] are (startSec, endSec) pairs, joined in order.
      */
-    suspend fun trimRecording(id: String, ranges: List<Pair<Int, Int>>, title: String, kind: String): String {
+    suspend fun trimRecording(id: String, ranges: List<Pair<Double, Double>>, title: String, kind: String): String {
         val body = JsonObject().apply {
+            // fractions of a second are accepted (from 0.2 s, rounded to milliseconds by the server)
             add("ranges", gson.toJsonTree(ranges.map { mapOf("startSec" to it.first, "endSec" to it.second) }))
             addProperty("title", title.take(300))
             addProperty("kind", kind.take(100))
@@ -134,6 +135,28 @@ class WebApi(
 
     suspend fun revokeShare(shareId: String) {
         text(Request.Builder().url("$base/v1/shares/$shareId").delete().build())
+    }
+
+    // ───────────────────────── trim draft (one per user and recording, on the server) ─────────────────────────
+
+    /** The saved trim of this recording with its time, or null when there is none (or the server does not know the recording). */
+    suspend fun getTrimDraft(id: String): Pair<String, Long>? =
+        try {
+            val json = com.google.gson.JsonParser.parseString(text(get("/v1/recordings/$id/trim-draft"))).asJsonObject
+            val d = json["draft"]?.takeIf { !it.isJsonNull }?.asJsonObject
+            d?.let { it["state"].toString() to it["updatedAt"].asLong }
+        } catch (e: ServerException) {
+            if (e.status == 404) null else throw e
+        }
+
+    /** Saves the draft; returns the server's `updatedAt`. */
+    suspend fun putTrimDraft(id: String, stateJson: String): Long {
+        val body = """{"state":$stateJson}"""
+        return com.google.gson.JsonParser.parseString(text(put("/v1/recordings/$id/trim-draft", body, null))).asJsonObject["updatedAt"].asLong
+    }
+
+    suspend fun deleteTrimDraft(id: String) {
+        text(Request.Builder().url("$base/v1/recordings/$id/trim-draft").delete().build())
     }
 
     /** The account's server settings (AI key source and quota); the app only reads them. */

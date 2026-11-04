@@ -337,6 +337,24 @@ class WebSyncEngineTest {
     }
 
     @Test
+    fun aPhotoSentFromThePhoneCarriesItsGeotagBackSoTheServerNeverLosesIt() {
+        phone.create("r1", "Rapat", status = "DONE", audio = "A", transcript = true, notes = true)
+        val img = File(dir, "geo.jpg").also { it.writeBytes(byteArrayOf(1, 2, 3)) }
+        phone.recs.getValue("r1").photos = listOf(LocalPhoto("ph1", img, 30, "Balai", 5L, latitude = -7.12345, longitude = 110.5, accuracyM = 6.0, placeName = "Balai Desa"))
+        sync()
+        val onServer = server.recs.getValue("r1").photos.single()
+        assertEquals(-7.12345, onServer.latitude!!, 0.00001)
+        assertEquals(110.5, onServer.longitude!!, 0.00001)
+        assertEquals("Balai Desa", onServer.placeName)
+        // an edit of the caption sends the photo again: the geotag must go with it
+        phone.recs.getValue("r1").photos = listOf(LocalPhoto("ph1", img, 30, "Balai Desa, depan", 5L, latitude = -7.12345, longitude = 110.5, accuracyM = 6.0, placeName = "Balai Desa"))
+        sync()
+        val after = server.recs.getValue("r1").photos.single()
+        assertEquals("Balai Desa, depan", after.caption)
+        assertEquals(-7.12345, after.latitude!!, 0.00001)
+    }
+
+    @Test
     fun aMarkRenamedOnThePhoneReachesTheServerAsTheSameMark() {
         phone.create("r1", "Rapat", status = "DONE", audio = "A", transcript = true, notes = true)
         phone.mark("r1", 12, "Penanda 1")

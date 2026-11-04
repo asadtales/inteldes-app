@@ -42,12 +42,13 @@ class AudioFormatsTest {
     }
 
     @Test
-    fun aDraftSurvivesItsTextFormAndIgnoresDamagedText() {
-        val d = TrimDraft.of(600, TrimMode.KEEP, listOf(TimeRange(10, 20), TimeRange(40, 90)), "Judul saya", "standard", "CLOUD", false, 1, now = 5)
-        val back = TrimDraftCodec.decode(TrimDraftCodec.encode(mapOf("r1" to d))).getValue("r1")
-        assertEquals(d, back)
-        assertEquals(listOf(TimeRange(10, 20), TimeRange(40, 90)), back.timeRanges())
-        assertEquals(TrimMode.KEEP, back.trimMode())
+    fun aStoredDraftSurvivesItsTextFormAndDamagedTextIsIgnored() {
+        val model = TrimModel(listOf(Region(10.0, 20.5, RegionMode.CUT), Region(40.0, 90.0, RegionMode.KEEP)), RegionMode.CUT)
+        val state = TrimDraftState.of(model, 5.0, 8.0, 12.5, 3, null, "Judul", "Musdes", true)
+        val stored = StoredDraft(600, 1234L, state)
+        val back = TrimDraftCodec.decode(TrimDraftCodec.encode(mapOf("r1" to stored))).getValue("r1")
+        assertEquals(stored, back)
+        assertEquals(model, back.state.model())
         assertTrue(TrimDraftCodec.decode("{bukan json").isEmpty())
         assertTrue(TrimDraftCodec.decode(null).isEmpty())
     }
