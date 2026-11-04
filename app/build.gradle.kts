@@ -18,8 +18,8 @@ android {
         minSdk = 26
         targetSdk = 34
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 4
-        versionName = "2.5.0"
+        versionCode = 5
+        versionName = "2.5.1"
 
         // The IntelDes web/server this app can sign in to (login + QR pairing). HTTPS only.
         buildConfigField("String", "SERVER_URL", "\"https://inteldes.at-in.site\"")
