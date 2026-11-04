@@ -183,3 +183,27 @@ Privasi: koordinat adalah data sensitif; sakelar default **mati**, jelaskan di l
 - Web kini punya sidebar yang bisa disembunyikan (hamburger), tombol layar penuh, dan arsip HP dengan filter ringkas (kategori tersembunyi sampai tombol **Filter** dibuka). Untuk app: daftar Arsip sebaiknya serupa (pencarian + tombol Filter yang memuat kategori dan status; kartu padat dengan judul, lalu kategori · sumber · durasi, status di kanan).
 - Semua jam ditampilkan **WIB (GMT+7)**, juga pada penanda dan label foto.
 - Setelah mengerjakan, perbarui `CATATAN_PERUBAHAN_APP.md` dan beri tahu server bila ada kontrak yang perlu diubah.
+
+---
+
+## 8. Model AI per penyedia dan OpenRouter (server sudah siap, 2026-11-04; migrasi 0011)
+
+**Yang berubah di server** (semuanya tambahan, kecuali butir enum):
+- Penyedia baru **`OPENROUTER`**. Enum penyedia (`AiProvider`: `AUTO | GEMINI | CLAUDE | OPENROUTER`) muncul di `GET/PUT /v1/settings` (`settings.provider`), `POST /v1/recordings/{id}/process` (`provider`), Tanya AI (`provider`), dan `RecordingInput.provider`. **Peringatan**: bila model Kotlin memakai `enum class` dengan dekoder ketat, nilai `OPENROUTER` akan gagal di-decode di APK lama. Pada versi baru tambahkan nilainya dan pakai `coerceInputValues`/nilai `UNKNOWN` agar nilai tak dikenal tidak membuat layar pengaturan atau daftar rapat gagal dimuat.
+- Nama kunci baru `openrouter` pada `GET /v1/secrets` (`items[]` kini 4 entri) dan `PUT/DELETE /v1/secrets/openrouter`. `GET /v1/settings` -> `ai.openrouter` (boolean kunci terisi) dan `models.openrouter`, `models.openrouterEconomy` (boolean: model sudah dipilih). **Arti `models.*` berubah**: sebelumnya "nama model ada di env server", kini "model sudah dipilih dari sumber mana pun (organisasi, platform, env)". Nama modelnya ada di `/v1/ai-models`.
+- Model per penyedia dan mode (normal/hemat):
+  - `GET /v1/ai-models` -> `{ keySource, canChoose, choice, platformDefaults, catalog, effective }`. `choice` = pilihan organisasi (`{gemini?:{normal?,economy?}, claude?:..., openrouter?:...}`); `effective.<penyedia>.<normal|economy>` = `{ model, source }` dengan `source` `organisasi | platform | env` atau null bila belum dipilih; `catalog` = saran `[{id,label}]` per penyedia (hanya saran, ID bebas diketik). Semua peran boleh membaca.
+  - `PUT /v1/ai-models` (admin) mengganti seluruh `choice`; ID kosong = bawaan. Hanya berlaku bila organisasi memakai kunci sendiri; bila memakai **kunci IntelDes**, model ditentukan superadmin (`canChoose: false`) dan pilihan organisasi diabaikan.
+  - `POST /v1/ai-models/check` (admin) `{ provider, model?, economy? }` -> `{ ok, message, ms? }`: satu permintaan kecil ke penyedia untuk memastikan model + kunci berfungsi (selalu HTTP 200; tidak dihitung kuota; 10 kali per menit).
+  - Superadmin (web saja): `GET/PUT /v1/admin/ai-models` `{ defaults, catalog }`.
+- Aturan ID: Gemini/Claude `[A-Za-z0-9][A-Za-z0-9._-]*` (mis. `gemini-2.5-flash`, `claude-sonnet-5`); OpenRouter `vendor/nama-model` (boleh `:` dan `+`, mis. `google/gemini-2.5-flash`, `meta-llama/llama-3.3-70b-instruct:free`). ID tak valid dijawab 400 `validation_error` dengan alasan di `error.details[0].message`; tampilkan alasan itu.
+- Galat saat memproses/bertanya: model belum dipilih -> 422 `model_missing` (pesan sudah ramah, tampilkan apa adanya); kunci belum diisi -> 422 `secret_missing` dengan `details.missing` memuat `openrouter` bila relevan; paket tidak mencakup penyedia -> 403 `plan_provider_not_allowed`.
+- Paket kuota (`allowedProviders`) boleh memuat `OPENROUTER` (superadmin, web).
+
+**Yang perlu dikerjakan di app** (menyamai web: Pengaturan -> "Model AI"):
+1. Layar pengaturan penyedia: tambah kartu **OpenRouter**; kolom kunci OpenRouter (tulis-saja, seperti kunci lain); tampilkan status siap/belum.
+2. Bagian **Model AI**: untuk Gemini, Claude, dan OpenRouter tampilkan dua isian (mode normal, mode hemat) dengan saran dari `catalog` (dropdown yang tetap menerima ketikan bebas), teks "Dipakai: <model> (<sumber>)" dari `effective`, tombol **Uji** (`/ai-models/check`), dan **Simpan** (`PUT /v1/ai-models`). Bila `canChoose == false`, tampilkan hanya-baca dengan keterangan "Model ditentukan oleh IntelDes (kunci IntelDes dipakai)". Pembaca/operator hanya melihat.
+3. Dialog **Susun ulang / proses**: pilihan penyedia memuat OpenRouter; nonaktifkan penyedia yang kuncinya belum terisi atau modelnya belum dipilih (`ai.*` dan `models.*`), atau tampilkan 422 dengan jelas.
+4. Layar detail rapat: label penyedia notulensi menampilkan "OpenRouter".
+5. Ingat bahwa daftar `catalog` hanya contoh; OpenRouter punya ratusan model, jadi pastikan isian bebas selalu tersedia dan beri tautan teks "openrouter.ai/models" sebagai rujukan ID.
+6. Uji manual: pilih model OpenRouter lalu proses rapat pendek; ganti ke kunci IntelDes dan pastikan isian model menjadi hanya-baca.

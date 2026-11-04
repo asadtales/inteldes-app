@@ -1065,6 +1065,68 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/ai-models:
+    get:
+      tags: [Pengaturan AI]
+      summary: Pilihan model AI organisasi ini
+      description: |
+        Model per penyedia (Gemini, Claude, OpenRouter) untuk mode normal dan hemat. Organisasi yang memakai kunci sendiri menentukan
+        modelnya (`canChoose: true`); organisasi yang memakai kunci IntelDes memakai model bawaan platform yang diatur superadmin.
+        `effective` menunjukkan model yang akan dipakai dan sumbernya (organisasi, platform, env). `catalog` hanyalah saran; ID bebas diketik.
+      operationId: getAiModels
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200": { description: Pilihan model., content: { application/json: { schema: { $ref: "#/components/schemas/AiModelsView" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [Pengaturan AI]
+      summary: Pilih model AI organisasi (admin)
+      description: Mengganti seluruh pilihan model organisasi. ID kosong berarti pakai bawaan. Bentuk ID OpenRouter `vendor/nama-model`. Hanya berlaku bila organisasi memakai kunci sendiri.
+      operationId: putAiModels
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/AiModelChoice" } } } }
+      responses:
+        "200": { description: Tersimpan., content: { application/json: { schema: { $ref: "#/components/schemas/AiModelsView" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/ai-models/check:
+    post:
+      tags: [Pengaturan AI]
+      summary: Uji satu model dengan kunci yang dipakai (admin)
+      description: Mengirim satu permintaan sangat kecil ke penyedia. Tidak dihitung ke kuota. Selalu 200; hasilnya di `ok` dan `message`.
+      operationId: checkAiModel
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [provider], additionalProperties: false, properties: { provider: { type: string, enum: [GEMINI, CLAUDE, OPENROUTER] }, model: { type: string, maxLength: 120 }, economy: { type: boolean } } } } }
+      responses:
+        "200": { description: Hasil uji., content: { application/json: { schema: { type: object, required: [ok, message], properties: { ok: { type: boolean }, message: { type: string }, ms: { type: integer } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/admin/ai-models:
+    get:
+      tags: [Superadmin]
+      summary: Model AI bawaan platform dan daftar pilihan (superadmin)
+      operationId: adminGetAiModels
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200": { description: Pengaturan platform., content: { application/json: { schema: { $ref: "#/components/schemas/PlatformAiModels" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [Superadmin]
+      summary: Atur model AI bawaan platform dan daftar pilihan (superadmin)
+      description: "'defaults' dipakai semua organisasi yang memakai kunci IntelDes dan sebagai cadangan bagi yang lain. 'catalog' adalah saran model yang tampil di pilihan."
+      operationId: adminPutAiModels
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformAiModels" } } } }
+      responses:
+        "200": { description: Tersimpan., content: { application/json: { schema: { $ref: "#/components/schemas/PlatformAiModels" } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /v1/secrets:
     get:
       tags: [Pengaturan AI]
@@ -1900,7 +1962,7 @@ components:
 
     RecordingStatus: { enum: [RAW, WORKING, DONE] }
     Engine: { enum: [ON_DEVICE, CLOUD] }
-    Provider: { enum: [AUTO, GEMINI, CLAUDE] }
+    Provider: { enum: [AUTO, GEMINI, CLAUDE, OPENROUTER] }
     Density: { enum: [RINGKAS, SEDANG, DETAIL] }
     SectionType: { enum: [PARAGRAPH, BULLETS, TOPICS, DECISIONS, QUESTIONS, ACTIONS] }
     Sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
@@ -2193,9 +2255,9 @@ components:
         videos: { type: array, items: { $ref: "#/components/schemas/Video" } }
         chat: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } }
 
-    AiProvider: { enum: [AUTO, GEMINI, CLAUDE], description: "AUTO: Gemini untuk rapat > 90 menit, selain itu Claude." }
+    AiProvider: { enum: [AUTO, GEMINI, CLAUDE, OPENROUTER], description: "AUTO: Gemini untuk rapat > 90 menit, selain itu Claude. OPENROUTER hanya dipakai bila dipilih eksplisit." }
     Language: { enum: [INDONESIA, ENGLISH] }
-    SecretName: { enum: [deepgram, gemini, claude] }
+    SecretName: { enum: [deepgram, gemini, claude, openrouter] }
     SecretStatus:
       type: object
       required: [name, configured, updatedAt]
@@ -2275,7 +2337,7 @@ components:
         jobs: { type: [integer, "null"], minimum: 0, description: "Jumlah pemrosesan (process/regenerate) per periode." }
         asks: { type: [integer, "null"], minimum: 0, description: "Jumlah pertanyaan AI per periode." }
         maxRecordingMinutes: { type: [integer, "null"], minimum: 0, description: "Panjang maksimum satu rekaman yang boleh diproses." }
-        allowedProviders: { type: array, items: { type: string, enum: [GEMINI, CLAUDE] }, default: [], description: "Kosong = semua penyedia." }
+        allowedProviders: { type: array, items: { type: string, enum: [GEMINI, CLAUDE, OPENROUTER] }, default: [], description: "Kosong = semua penyedia." }
         active: { type: boolean, default: true, description: "Paket nonaktif tidak bisa dipasang baru." }
     Plan:
       allOf:
@@ -2305,12 +2367,74 @@ components:
           type: object
           required: [deepgram, gemini, claude]
           description: "Kunci API terisi atau belum."
-          properties: { deepgram: { type: boolean }, gemini: { type: boolean }, claude: { type: boolean } }
+          properties: { deepgram: { type: boolean }, gemini: { type: boolean }, claude: { type: boolean }, openrouter: { type: boolean } }
         models:
           type: object
           required: [gemini, claude, geminiEconomy, claudeEconomy]
-          description: "Nama model terkonfigurasi di server atau belum."
-          properties: { gemini: { type: boolean }, claude: { type: boolean }, geminiEconomy: { type: boolean }, claudeEconomy: { type: boolean } }
+          description: "Model sudah dipilih (organisasi, platform, atau env) atau belum; lihat GET /v1/ai-models untuk nama dan sumbernya."
+          properties: { gemini: { type: boolean }, claude: { type: boolean }, geminiEconomy: { type: boolean }, claudeEconomy: { type: boolean }, openrouter: { type: boolean }, openrouterEconomy: { type: boolean } }
+    AiModelTier:
+      type: object
+      additionalProperties: false
+      properties:
+        normal: { type: string, maxLength: 120, description: "Model mode normal." }
+        economy: { type: string, maxLength: 120, description: "Model mode hemat; kosong = pakai model normal." }
+    AiModelChoice:
+      type: object
+      additionalProperties: false
+      description: "Pilihan model per penyedia. ID Gemini/Claude: huruf, angka, titik, minus (mis. gemini-2.5-flash). ID OpenRouter: vendor/nama-model (mis. google/gemini-2.5-flash)."
+      properties:
+        gemini: { $ref: "#/components/schemas/AiModelTier" }
+        claude: { $ref: "#/components/schemas/AiModelTier" }
+        openrouter: { $ref: "#/components/schemas/AiModelTier" }
+    AiModelCatalogEntry:
+      type: object
+      required: [id, label]
+      additionalProperties: false
+      properties: { id: { type: string, maxLength: 120 }, label: { type: string, maxLength: 120 } }
+    AiModelCatalog:
+      type: object
+      required: [gemini, claude, openrouter]
+      additionalProperties: false
+      properties:
+        gemini: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/AiModelCatalogEntry" } }
+        claude: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/AiModelCatalogEntry" } }
+        openrouter: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/AiModelCatalogEntry" } }
+    PlatformAiModels:
+      type: object
+      required: [defaults, catalog]
+      additionalProperties: false
+      properties:
+        defaults: { $ref: "#/components/schemas/AiModelChoice" }
+        catalog: { $ref: "#/components/schemas/AiModelCatalog" }
+    EffectiveAiModel:
+      type: object
+      required: [model, source]
+      properties:
+        model: { type: [string, "null"] }
+        source: { type: [string, "null"], enum: [organisasi, platform, env, null] }
+    AiModelsView:
+      type: object
+      required: [keySource, canChoose, choice, platformDefaults, catalog, effective]
+      properties:
+        keySource: { $ref: "#/components/schemas/KeySource" }
+        canChoose: { type: boolean, description: "true bila admin organisasi menentukan model (kunci sendiri); false bila kunci IntelDes dipakai." }
+        choice: { $ref: "#/components/schemas/AiModelChoice" }
+        platformDefaults: { $ref: "#/components/schemas/AiModelChoice" }
+        catalog: { $ref: "#/components/schemas/AiModelCatalog" }
+        effective:
+          type: object
+          required: [gemini, claude, openrouter]
+          properties:
+            gemini: { $ref: "#/components/schemas/EffectiveAiModelPair" }
+            claude: { $ref: "#/components/schemas/EffectiveAiModelPair" }
+            openrouter: { $ref: "#/components/schemas/EffectiveAiModelPair" }
+    EffectiveAiModelPair:
+      type: object
+      required: [normal, economy]
+      properties:
+        normal: { $ref: "#/components/schemas/EffectiveAiModel" }
+        economy: { $ref: "#/components/schemas/EffectiveAiModel" }
     Template:
       type: object
       required: [id, name, description, builtin, version, sections]
