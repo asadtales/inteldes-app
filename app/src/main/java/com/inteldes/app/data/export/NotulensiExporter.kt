@@ -27,7 +27,7 @@ import java.util.zip.ZipOutputStream
  */
 object NotulensiExporter {
 
-    private val dateFormat = SimpleDateFormat("dd MMMM yyyy, HH:mm", Locale("id", "ID"))
+    private val dateFormat get() = com.inteldes.app.ui.util.Wib.formatter("dd MMMM yyyy, HH:mm")
 
     private fun safeFileName(title: String): String {
         val cleaned = title.trim().ifBlank { "Notulensi" }.replace(Regex("[^A-Za-z0-9 _-]"), "").replace(" ", "_")

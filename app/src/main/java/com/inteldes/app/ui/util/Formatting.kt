@@ -23,8 +23,9 @@ fun formatRecordTimer(sec: Int): String {
     return "00:%02d:%02d".format(m, s)
 }
 
-fun formatRelativeDay(epochMillis: Long): String {
-    val diffDays = TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis() - epochMillis)
+/** "Hari ini", "Kemarin", ... counted in calendar days of WIB: 23.59 yesterday is "Kemarin" one minute later, not "Hari ini". */
+fun formatRelativeDay(epochMillis: Long, nowMillis: Long = System.currentTimeMillis()): String {
+    val diffDays = Wib.dayNumber(nowMillis) - Wib.dayNumber(epochMillis)
     return when {
         diffDays <= 0 -> "Hari ini"
         diffDays == 1L -> "Kemarin"

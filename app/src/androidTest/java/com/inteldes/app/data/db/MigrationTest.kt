@@ -37,9 +37,9 @@ class MigrationTest {
         db.query("SELECT COUNT(*) FROM `$table`").use { it.moveToFirst(); it.getInt(0) }
 
     @Test
-    fun v7ToV10KeepsEveryRowAndMatchesTheSchema() {
+    fun v7ToV11KeepsEveryRowAndMatchesTheSchema() {
         helper.createDatabase(name, 7).apply { seedV7(this); close() }
-        val db = helper.runMigrationsAndValidate(name, 10, true, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+        val db = helper.runMigrationsAndValidate(name, 11, true, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
         assertEquals(1, count(db, "recordings"))
         assertEquals(2, count(db, "recording_marks"))
         assertEquals(1, count(db, "photos"))
@@ -77,6 +77,21 @@ class MigrationTest {
     }
 
     @Test
+    fun v10ToV11AddsTheVideosTableAndKeepsTheRecordings() {
+        helper.createDatabase(name, 7).apply { seedV7(this); close() }
+        helper.runMigrationsAndValidate(name, 10, true, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10).close()
+        val db = helper.runMigrationsAndValidate(name, 11, true, MIGRATION_10_11)
+        assertEquals(1, count(db, "recordings"))
+        assertEquals(0, count(db, "videos"))
+        db.execSQL("INSERT INTO videos (recordingId,filePath,takenAtSec,caption,createdAt,uuid,sizeBytes,mime) VALUES ('r1','/files/videos/a.mp4',12,'Lapangan',1,'u-1',123,'video/mp4')")
+        assertEquals(1, count(db, "videos"))
+        // a video goes with its recording (cascade)
+        db.execSQL("PRAGMA foreign_keys=ON")                                       // Room switches this on in the app; the test helper does not
+        db.execSQL("DELETE FROM recordings WHERE id='r1'")
+        assertEquals(0, count(db, "videos"))
+    }
+
+    @Test
     fun theAppOpensAV7FileThroughRoomWithAllItsMigrations() {
         helper.createDatabase(name, 7).apply { seedV7(this); close() }
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
@@ -86,7 +101,7 @@ class MigrationTest {
             .build()
         try {
             val db = room.openHelper.writableDatabase
-            assertEquals(10, db.version)
+            assertEquals(11, db.version)
             assertEquals(1, count(db, "recordings"))
         } finally {
             room.close()

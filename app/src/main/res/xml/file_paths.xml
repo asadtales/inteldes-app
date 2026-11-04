@@ -3,4 +3,5 @@
     <cache-path name="exports" path="exports/" />
     <cache-path name="camera" path="camera/" />
     <files-path name="recordings" path="recordings/" />
+    <files-path name="videos" path="videos/" />
 </paths>

@@ -158,6 +158,36 @@ data class PhotoEntity(
     val placeName: String? = null,
 )
 
+/**
+ * A short video attached to a recording. [uuid] is the id the server knows it by. [syncedSha] is the file's sha-256 once
+ * it is on the server; [deletedAt] marks a video the user removed that the server still has to be told about.
+ */
+@Entity(
+    tableName = "videos",
+    foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("recordingId")],
+)
+data class VideoEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val recordingId: String,
+    val filePath: String,
+    val takenAtSec: Int?,
+    val caption: String = "",
+    val createdAt: Long,
+    val uuid: String = UUID.randomUUID().toString(),
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val accuracyM: Double? = null,
+    val placeName: String? = null,
+    val durationSec: Double? = null,
+    val sizeBytes: Long = 0,
+    val mime: String = "video/mp4",
+    val syncedSha: String? = null,
+    /** Why the server refused it (too long, not a video…); a refused video is not sent again. */
+    val syncError: String? = null,
+    val deletedAt: Long? = null,
+)
+
 @Entity(
     tableName = "transcript_segments",
     foreignKeys = [ForeignKey(entity = RecordingEntity::class, parentColumns = ["id"], childColumns = ["recordingId"], onDelete = ForeignKey.CASCADE)],

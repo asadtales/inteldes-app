@@ -86,6 +86,12 @@ fun DetailScreen(
     val serverJob by vm.serverJob.collectAsStateWithLifecycle()
     val hasTrimDraft by vm.hasTrimDraft.collectAsStateWithLifecycle()
     val shareUi by vm.share.collectAsStateWithLifecycle()
+    val videos by vm.videos.collectAsStateWithLifecycle()
+    val notice by vm.notice.collectAsStateWithLifecycle()
+    val noticeContext = LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(notice) {
+        notice?.let { android.widget.Toast.makeText(noticeContext, it, android.widget.Toast.LENGTH_LONG).show(); vm.clearNotice() }
+    }
     val onSeek: (Int) -> Unit = vm::seekPlayback
 
     androidx.compose.runtime.LaunchedEffect(initialTab) {
@@ -95,6 +101,7 @@ fun DetailScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showLocationEdit by remember { mutableStateOf(false) }
     var showTrim by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
     var trimFromSec by remember { mutableStateOf<Int?>(null) }
 
     Column(modifier = Modifier.fillMaxSize().background(IdColor.Bg)) {
@@ -103,7 +110,7 @@ fun DetailScreen(
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali", tint = IdColor.Text)
                 }
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f).clickable(enabled = state.recording != null) { showRename = true }) {
                     Text(
                         state.recording?.title ?: "",
                         fontWeight = FontWeight.Bold,
@@ -118,6 +125,9 @@ fun DetailScreen(
                     )
                 }
                 if (state.recording != null) {
+                    IconButton(onClick = { showRename = true }) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Ubah judul", tint = IdColor.Neutral700)
+                    }
                     IconButton(onClick = { showDeleteConfirm = true }) {
                         Icon(Icons.Filled.Delete, contentDescription = "Hapus rekaman", tint = IdColor.Neutral700)
                     }
@@ -181,6 +191,10 @@ fun DetailScreen(
                 onAddPhoto = vm::addPhoto,
                 onUpdateCaption = vm::updatePhotoCaption,
                 onDeletePhoto = vm::deletePhoto,
+                videos = videos,
+                onAddVideo = vm::addVideo,
+                onVideoCaption = vm::updateVideoCaption,
+                onDeleteVideo = vm::deleteVideo,
                 playback = playback,
                 onTogglePlay = vm::togglePlayback,
                 onSeek = onSeek,
@@ -210,6 +224,10 @@ fun DetailScreen(
                 onUpdateCaption = vm::updatePhotoCaption,
                 onDeletePhoto = vm::deletePhoto,
                 onShareLink = vm::openShare,
+                videos = videos,
+                onAddVideo = vm::addVideo,
+                onVideoCaption = vm::updateVideoCaption,
+                onDeleteVideo = vm::deleteVideo,
                 modifier = Modifier.weight(1f),
             )
             state.tab == DetailTab.SCRIPT -> ScriptTab(
@@ -292,6 +310,30 @@ fun DetailScreen(
         )
     }
 
+    if (showRename) {
+        val current = state.recording?.title.orEmpty()
+        var name by remember(current) { mutableStateOf(current) }
+        AlertDialog(
+            onDismissRequest = { showRename = false },
+            title = { Text("Ubah judul rekaman", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    com.inteldes.app.ui.components.IdTextField(value = name, onValueChange = { if (it.length <= 300) name = it }, placeholder = "Judul rekaman")
+                    Text("${name.length} / 300", color = IdColor.Neutral600, fontSize = 10.5.sp, modifier = Modifier.padding(top = 4.dp))
+                }
+            },
+            confirmButton = {
+                Text(
+                    "SIMPAN",
+                    color = if (name.isNotBlank()) IdColor.Accent else IdColor.Neutral400,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable(enabled = name.isNotBlank()) { vm.setTitle(name); showRename = false }.padding(10.dp),
+                )
+            },
+            dismissButton = { Text("Batal", color = IdColor.Neutral700, modifier = Modifier.clickable { showRename = false }.padding(10.dp)) },
+        )
+    }
+
     if (showLocationEdit) {
         com.inteldes.app.ui.components.LocationEditDialog(
             current = state.recording?.locationName,
@@ -326,6 +368,7 @@ fun DetailScreen(
 internal fun providerBadge(provider: AiProvider?): String = when (provider) {
     AiProvider.GEMINI -> "Gemini 2.5 Pro"
     AiProvider.CLAUDE -> "Claude Sonnet"
+    AiProvider.OPENROUTER -> "OpenRouter"
     else -> "Agent AI"
 }
 
@@ -588,6 +631,10 @@ private fun NotDoneState(
     onAddPhoto: (android.net.Uri, Boolean) -> Unit,
     onUpdateCaption: (com.inteldes.app.data.model.Photo, String) -> Unit,
     onDeletePhoto: (com.inteldes.app.data.model.Photo) -> Unit,
+    videos: List<com.inteldes.app.data.model.Video>,
+    onAddVideo: (android.net.Uri, Boolean) -> Unit,
+    onVideoCaption: (com.inteldes.app.data.model.Video, String) -> Unit,
+    onDeleteVideo: (com.inteldes.app.data.model.Video) -> Unit,
     playback: com.inteldes.app.data.audio.PlaybackState,
     onTogglePlay: () -> Unit,
     onSeek: (Int) -> Unit,
@@ -648,6 +695,7 @@ private fun NotDoneState(
                 com.inteldes.app.ui.components.LocationRow(locationName, onEdit = onEditLocation)
             }
             PhotoDocumentation(photos, onAddPhoto, onUpdateCaption, onDeletePhoto)
+            com.inteldes.app.ui.components.VideoDocumentation(videos, onAddVideo, onVideoCaption, onDeleteVideo)
         }
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp)) {
             Box(

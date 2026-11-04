@@ -22,7 +22,7 @@ import java.util.UUID
 
 /** Turns recordings into the plain Markdown-ish text a knowledge context is made of. */
 object ContextBuilder {
-    private val dateFormat get() = SimpleDateFormat("d MMMM yyyy", Locale("id", "ID"))
+    private val dateFormat get() = com.inteldes.app.ui.util.Wib.formatter("d MMMM yyyy")
 
     fun section(recording: Recording, notulensi: Notulensi?, transcript: List<TranscriptSegment>, kind: ContextSourceKind): String =
         buildString {

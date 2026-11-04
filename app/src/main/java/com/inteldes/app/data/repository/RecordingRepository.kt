@@ -15,6 +15,7 @@ import com.inteldes.app.data.db.RecordingEntity
 import com.inteldes.app.data.db.RecordingMarkEntity
 import com.inteldes.app.data.db.SectionCodec
 import com.inteldes.app.data.db.TranscriptSegmentEntity
+import com.inteldes.app.data.db.VideoEntity
 import com.inteldes.app.data.db.toDomain
 import com.inteldes.app.data.model.AiProvider
 import com.inteldes.app.data.model.ChatMessage
@@ -161,6 +162,13 @@ class RecordingRepository(private val db: IntelDesDatabase) {
         }
     }
 
+    /** Renames a recording. The title is part of what the web sync sends (with the version check), so it reaches the server by itself. */
+    suspend fun setTitle(id: String, title: String) {
+        val clean = title.trim().take(300)
+        if (clean.isEmpty()) return
+        db.recordingDao().getOne(id)?.let { db.recordingDao().update(it.copy(title = clean)) }
+    }
+
     suspend fun setTemplate(id: String, template: NoteTemplate) {
         db.recordingDao().getOne(id)?.let { db.recordingDao().update(it.copy(templateId = template.id, templateName = template.name)) }
     }
@@ -230,10 +238,39 @@ class RecordingRepository(private val db: IntelDesDatabase) {
         }
 
     /** [takenAtSec] is the offset into the audio when the photo was added; null when added after the fact. */
-    suspend fun addPhoto(recordingId: String, file: File, takenAtSec: Int?) {
+    suspend fun addPhoto(recordingId: String, file: File, takenAtSec: Int?, geo: com.inteldes.app.data.photo.GeoFix? = null) {
         db.photoDao().insert(
-            PhotoEntity(recordingId = recordingId, filePath = file.absolutePath, takenAtSec = takenAtSec, createdAt = System.currentTimeMillis()),
+            PhotoEntity(
+                recordingId = recordingId, filePath = file.absolutePath, takenAtSec = takenAtSec, createdAt = System.currentTimeMillis(),
+                latitude = geo?.latitude, longitude = geo?.longitude, accuracyM = geo?.accuracyM, placeName = geo?.placeName?.take(200),
+            ),
         )
+    }
+
+    fun observeVideos(recordingId: String): Flow<List<com.inteldes.app.data.model.Video>> =
+        db.videoDao().observe(recordingId).map { list -> list.map { it.toDomain() } }
+
+    /** Adds an imported video; refuses the 21st of a recording (the server keeps 20). */
+    suspend fun addVideo(recordingId: String, video: com.inteldes.app.data.video.ImportedVideo, takenAtSec: Int?, geo: com.inteldes.app.data.photo.GeoFix? = null) {
+        if (db.videoDao().count(recordingId) >= com.inteldes.app.data.video.VideoRules.MAX_PER_RECORDING) {
+            video.file.delete()
+            throw IOException("Satu rekaman maksimal ${com.inteldes.app.data.video.VideoRules.MAX_PER_RECORDING} video.")
+        }
+        db.videoDao().insert(
+            VideoEntity(
+                recordingId = recordingId, filePath = video.file.absolutePath, takenAtSec = takenAtSec, createdAt = System.currentTimeMillis(),
+                latitude = geo?.latitude, longitude = geo?.longitude, accuracyM = geo?.accuracyM, placeName = geo?.placeName?.take(200),
+                durationSec = video.durationSec, sizeBytes = video.sizeBytes, mime = video.mime,
+            ),
+        )
+    }
+
+    suspend fun updateVideoCaption(videoId: Long, caption: String) { db.videoDao().updateCaption(videoId, caption.trim().take(1000)) }
+
+    /** The file goes now; the row stays (marked) only if the server has to be told. */
+    suspend fun deleteVideo(video: com.inteldes.app.data.model.Video) {
+        File(video.filePath).delete()
+        if (video.synced) db.videoDao().markDeleted(video.id, System.currentTimeMillis()) else db.videoDao().delete(video.id)
     }
 
     suspend fun updatePhotoCaption(photoId: Long, caption: String) {
@@ -360,6 +397,7 @@ class RecordingRepository(private val db: IntelDesDatabase) {
         entity.audioFilePath?.let { File(it).delete() }
         // Photo rows cascade with the recording, but the image files don't.
         db.photoDao().observe(id).first().forEach { File(it.filePath).delete() }
+        db.videoDao().list(id).forEach { File(it.filePath).delete() }
         db.recordingDao().delete(entity)
     }
 }

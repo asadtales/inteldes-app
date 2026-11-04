@@ -257,6 +257,45 @@ class DetailViewModel(
         viewModelScope.launch { repository.addMark(recordingId, sec, "Penanda") }
     }
 
+    // ───────────────────────── short videos ─────────────────────────
+
+    val videos: StateFlow<List<com.inteldes.app.data.model.Video>> =
+        repository.observeVideos(recordingId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** A short message for the user that must be seen on every tab (a video that was refused, one that was added). */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice
+    fun clearNotice() { _notice.value = null }
+
+    /** Checks the limits, copies the video into the app and attaches it; the sync sends it to the web. */
+    fun addVideo(uri: Uri, temporary: Boolean) {
+        viewModelScope.launch {
+            try {
+                val imported = com.inteldes.app.data.video.VideoStorage.import(appContext, uri)
+                val geo = com.inteldes.app.data.photo.PhotoGeo.fixFor(appContext, settingsStore.settings.first())
+                repository.addVideo(recordingId, imported, takenAtSec = null, geo = geo)
+                SyncWorker.enqueue(appContext)
+                _notice.value = "Video ditambahkan. Dikirim ke web lewat sinkron."
+            } catch (e: Exception) {
+                _notice.value = e.message ?: "Gagal menambahkan video."
+            } finally {
+                if (temporary) runCatching { appContext.contentResolver.delete(uri, null, null) }
+            }
+        }
+    }
+
+    fun updateVideoCaption(video: com.inteldes.app.data.model.Video, caption: String) {
+        viewModelScope.launch { repository.updateVideoCaption(video.id, caption) }
+    }
+
+    fun deleteVideo(video: com.inteldes.app.data.model.Video) {
+        viewModelScope.launch { repository.deleteVideo(video) }
+    }
+
+    fun setTitle(title: String) {
+        viewModelScope.launch { repository.setTitle(recordingId, title) }
+    }
+
     fun setLocation(name: String) {
         viewModelScope.launch { repository.setLocation(recordingId, name) }
     }
@@ -508,7 +547,9 @@ class DetailViewModel(
         viewModelScope.launch {
             try {
                 val file = PhotoStorage.import(appContext, uri)
-                repository.addPhoto(recordingId, file, takenAtSec = null)
+                val title = repository.getRecording(recordingId)?.title
+                val geo = com.inteldes.app.data.photo.PhotoGeo.process(appContext, file, settingsStore.settings.first(), title)
+                repository.addPhoto(recordingId, file, takenAtSec = null, geo = geo)
             } catch (e: Exception) {
                 error.value = e.message ?: "Gagal menambahkan foto."
             } finally {

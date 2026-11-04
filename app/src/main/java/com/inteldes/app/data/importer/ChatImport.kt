@@ -83,7 +83,7 @@ object ChatImport {
     }
 
     private fun timestamped(items: List<Pair<IntArray, Pair<String, String>>>, dayFirst: Boolean): ParsedChat? {
-        val zone = TimeZone.getDefault()
+        val zone = com.inteldes.app.ui.util.Wib.zone       // WhatsApp stamps are the exporter's local time; read as WIB, like the web
         fun millis(s: IntArray): Long {
             val (a, b, yRaw) = Triple(s[0], s[1], s[2])
             val day = if (dayFirst) a else b

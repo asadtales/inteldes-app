@@ -66,7 +66,7 @@ fun ShareLinkDialog(
     var transcript by remember { mutableStateOf(false) }
     var audio by remember { mutableStateOf(true) }
     var days by remember { mutableStateOf<Int?>(30) }
-    val dateFormat = remember { SimpleDateFormat("d MMM yyyy", Locale("id", "ID")) }
+    val dateFormat = remember { com.inteldes.app.ui.util.Wib.formatter("d MMM yyyy") }
 
     AlertDialog(
         onDismissRequest = onDismiss,

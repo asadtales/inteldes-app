@@ -55,7 +55,7 @@ class ServerProcessWorker(appContext: Context, params: WorkerParameters) : Corou
             val rec = app.repository.getRecording(id) ?: return fail(id, "Rekaman tidak ditemukan.")
             // Refuse early, before the audio travels, when the package clearly has no room (the server still has the last word).
             ServerProcessor.quotaBlock(runCatching { api.settings() }.getOrNull()?.aiAccess, rec.durationSec) { at ->
-                java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale("id", "ID")).format(java.util.Date(at))
+                com.inteldes.app.ui.util.Wib.format("d MMM yyyy, HH:mm", at) + " WIB"
             }?.let { return fail(id, it) }
             // Custom templates must exist on the server before they can be named in the request.
             runCatching { WebLibrarySync(RoomWebLibrary(app.database), api, state = store.library).run() }

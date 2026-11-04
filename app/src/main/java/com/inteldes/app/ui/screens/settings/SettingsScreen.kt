@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
@@ -70,7 +71,8 @@ fun SettingsScreen(
     val webState by vm.webSyncState.collectAsStateWithLifecycle()
     val choice by vm.syncChoice.collectAsStateWithLifecycle()
     val serverAi by vm.serverAi.collectAsStateWithLifecycle()
-    LaunchedEffect(serverSession) { vm.refreshServerAi() }
+    LaunchedEffect(serverSession) { vm.refreshServerAi(); vm.refreshAiModels() }
+    val aiModels by vm.aiModels.collectAsStateWithLifecycle()
     var pickingSync by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -163,6 +165,61 @@ fun SettingsScreen(
         }
 
         item {
+            val logoPresent by vm.logoPresent.collectAsStateWithLifecycle()
+            val logoMessage by vm.logoMessage.collectAsStateWithLifecycle()
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            var geoMessage by remember { mutableStateOf<String?>(null) }
+            val permission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+                if (granted.values.any { it }) { vm.setPhotoGeotag(true); geoMessage = null }
+                else geoMessage = "Izin lokasi ditolak, geotag foto tetap mati."
+            }
+            val logoPicker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::chooseLogo) }
+            SettingsSection(
+                "Foto",
+                "Geotag ${onOff(s.photoGeotag)} · Cap pada foto ${onOff(s.photoGeoStamp)} · Logo ${onOff(s.photoLogo)}",
+                open == "foto", onToggle = { toggle("foto") },
+            ) {
+                SettingRow(
+                    "Geotag foto",
+                    "Setiap foto membawa posisi HP saat diambil (disimpan di foto, di EXIF-nya, dan ikut sinkron ke web). Posisi dicari paling lama 5 detik; tanpa posisi, foto tetap disimpan tanpa geotag.",
+                    if (s.photoGeotag) "Aktif" else "Nonaktif",
+                ) {
+                    if (s.photoGeotag) vm.setPhotoGeotag(false)
+                    else if (com.inteldes.app.data.location.LocationHelper.hasPermission(ctx)) vm.setPhotoGeotag(true)
+                    else permission.launch(com.inteldes.app.data.location.LocationHelper.permissions)
+                }
+                SettingRow(
+                    "Tulis geotag pada foto",
+                    "Pita di dasar foto berisi tanggal dan jam WIB, koordinat, akurasi, dan nama tempat. Perlu geotag foto aktif.",
+                    if (s.photoGeoStamp) "Aktif" else "Nonaktif",
+                ) { if (s.photoGeotag) vm.setPhotoGeoStamp(!s.photoGeoStamp) else geoMessage = "Aktifkan geotag foto dulu." }
+                SettingRow(
+                    "Pakai logo",
+                    "Logo di sisi kiri pita foto: logo Anda bila dipilih, kalau tidak logo IntelDes.",
+                    if (s.photoLogo) "Aktif" else "Nonaktif",
+                ) { vm.setPhotoLogo(!s.photoLogo) }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        DriveButton(if (logoPresent) "GANTI LOGO" else "PILIH LOGO SENDIRI", filled = false) {
+                            logoPicker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }
+                    }
+                    if (logoPresent) Box(modifier = Modifier.weight(0.6f)) { DriveButton("HAPUS", filled = false, onClick = vm::clearLogo) }
+                }
+                Text(
+                    "Logo: PNG, JPG, atau WebP, maksimal 1 MB. Disimpan di HP ini saja.",
+                    color = IdColor.Neutral600, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp),
+                )
+                (geoMessage ?: logoMessage)?.let { Text(it, color = IdColor.Neutral800, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp)) }
+                Text(
+                    "Koordinat adalah data sensitif: foto bergeotag yang dibagikan lewat tautan publik ikut membawa lokasinya.",
+                    color = IdColor.Neutral600, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+
+        item {
             SettingsSection(
                 "Transkripsi",
                 (if (s.defaultEngine == WhisperEngine.ON_DEVICE) "On-device" else "Awan") + " · " +
@@ -202,6 +259,9 @@ fun SettingsScreen(
                 open == "ai", onToggle = { toggle("ai") },
             ) {
                 serverAi?.let { ServerAiCard(it, serverSession?.isPersonal == true) }
+                if (aiModels.view != null) {
+                    ModelAiCard(aiModels, isAdmin = serverSession?.role == "admin", onEdit = vm::editModel, onSave = vm::saveAiModels, onCheck = vm::checkModel)
+                }
                 Text("Agent AI", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
                 Spacer(Modifier.height(8.dp))
                 ProviderRow("Otomatis (disarankan)", "IntelDes memilih agent sesuai panjang rapat dan sisa kuota.", s.provider == AiProvider.AUTO) { vm.setProvider(AiProvider.AUTO) }
@@ -209,6 +269,14 @@ fun SettingsScreen(
                 ProviderRow("Gemini 2.5 Pro", "Konteks panjang — bagus untuk rapat di atas 90 menit.", s.provider == AiProvider.GEMINI) { vm.setProvider(AiProvider.GEMINI) }
                 Spacer(Modifier.height(8.dp))
                 ProviderRow("Claude Sonnet", "Ringkasan lebih rapi dan konsisten untuk berita acara.", s.provider == AiProvider.CLAUDE) { vm.setProvider(AiProvider.CLAUDE) }
+                if (serverSession != null) {
+                    Spacer(Modifier.height(8.dp))
+                    ProviderRow(
+                        "OpenRouter (lewat server)",
+                        "Banyak model lewat satu kunci. Hanya diproses di server IntelDes: pilih \"Server IntelDes\" saat memproses.",
+                        s.provider == AiProvider.OPENROUTER,
+                    ) { vm.setProvider(AiProvider.OPENROUTER) }
+                }
                 SettingRow(
                     "Mode hemat token",
                     "Pakai model AI versi ringan (Gemini Flash / Claude Haiku) — lebih murah, ringkasan sedikit kurang detail",
@@ -504,7 +572,7 @@ private fun DriveSection(
             Text(
                 when {
                     sync.running -> sync.progress ?: "Menyinkronkan…"
-                    sync.lastSyncAt != null -> "Terakhir sinkron: " + java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale("id", "ID")).format(java.util.Date(sync.lastSyncAt))
+                    sync.lastSyncAt != null -> "Terakhir sinkron: " + com.inteldes.app.ui.util.Wib.formatter("d MMM yyyy, HH:mm").format(java.util.Date(sync.lastSyncAt)) + " WIB"
                     else -> "Belum pernah sinkron"
                 },
                 color = IdColor.Neutral700, fontSize = 12.sp,
@@ -752,7 +820,7 @@ private fun AboutSection() {
         AboutLine("Versi", "${com.inteldes.app.BuildConfig.VERSION_NAME} (build ${com.inteldes.app.BuildConfig.VERSION_CODE})")
         AboutLine(
             "Dibangun",
-            java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale("id", "ID")).format(java.util.Date(com.inteldes.app.BuildConfig.BUILD_TIME_MS)),
+            com.inteldes.app.ui.util.Wib.formatter("d MMM yyyy, HH:mm").format(java.util.Date(com.inteldes.app.BuildConfig.BUILD_TIME_MS)) + " WIB",
         )
         AboutLine("Kunci AI", "tidak ada di dalam aplikasi")
         AboutLine("Pengembang", "Asterix Inovasi Teknologi")
@@ -844,7 +912,7 @@ private fun SyncPickerDialog(choice: SyncChoiceUi, onToggle: (String, Boolean) -
                             Column(Modifier.weight(1f)) {
                                 Text(rec.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
                                 Text(
-                                    java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale("id", "ID")).format(java.util.Date(rec.createdAt)) +
+                                    com.inteldes.app.ui.util.Wib.formatter("d MMM yyyy, HH:mm").format(java.util.Date(rec.createdAt)) +
                                         " · " + com.inteldes.app.ui.util.formatMmSs(rec.durationSec),
                                     color = IdColor.Neutral600, fontSize = 10.5.sp,
                                 )
@@ -864,14 +932,14 @@ private fun ServerAiCard(view: com.inteldes.app.data.server.ServerSettingsView, 
     val access = view.aiAccess ?: return
     val platform = access.source == "platform"
     fun of(u: com.inteldes.app.data.server.AiUsage) = "${u.used} dari ${u.limit ?: "tanpa batas"}"
-    val dateFormat = java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale("id", "ID"))
+    val dateFormat = com.inteldes.app.ui.util.Wib.formatter("d MMM yyyy, HH:mm")
     Column(modifier = Modifier.fillMaxWidth().background(IdColor.Neutral100).padding(14.dp)) {
         Text("KUNCI AI DI SERVER", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
         Spacer(Modifier.height(4.dp))
         Text(if (platform) "Kunci IntelDes" else "Kunci milik ${if (personal) "akun ini" else "organisasi"}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
         view.ai?.let { ready ->
             Text(
-                "Siap: " + listOf("Transkripsi awan" to ready.deepgram, "Gemini" to ready.gemini, "Claude" to ready.claude)
+                "Siap: " + listOf("Transkripsi awan" to ready.deepgram, "Gemini" to ready.gemini, "Claude" to ready.claude, "OpenRouter" to ready.openrouter)
                     .joinToString(" · ") { (name, ok) -> name + if (ok) " ✓" else " ✗" },
                 color = IdColor.Neutral700, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp),
             )
@@ -883,7 +951,7 @@ private fun ServerAiCard(view: com.inteldes.app.data.server.ServerSettingsView, 
             )
             access.minutes?.let { Text("Menit audio: " + (if (it.limit == null) "${it.used} terpakai (tanpa batas)" else of(it)), color = IdColor.Neutral700, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)) }
             Text("Pemrosesan: ${of(access.jobs)}  ·  Pertanyaan AI: ${of(access.asks)}", color = IdColor.Neutral700, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 2.dp))
-            access.resetsAt?.let { Text("Kuota pulih ${dateFormat.format(java.util.Date(it))}", color = IdColor.Neutral700, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)) }
+            access.resetsAt?.let { Text("Kuota pulih ${dateFormat.format(java.util.Date(it))} WIB", color = IdColor.Neutral700, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)) }
         } else {
             Text(
                 "Tanpa paket. Pagar 24 jam terakhir: pemrosesan ${of(access.jobs)}, pertanyaan AI ${of(access.asks)}.",
@@ -896,4 +964,95 @@ private fun ServerAiCard(view: com.inteldes.app.data.server.ServerSettingsView, 
         )
     }
     Spacer(Modifier.height(14.dp))
+}
+
+/**
+ * The model each AI provider uses (normal and saving mode), as the server holds them. An admin whose organisation
+ * uses its own key picks the ids here; with the IntelDes key the superadmin decides and this is read-only.
+ */
+@Composable
+private fun ModelAiCard(
+    ui: SettingsViewModel.AiModelsUi, isAdmin: Boolean,
+    onEdit: (provider: String, economy: Boolean, value: String) -> Unit, onSave: () -> Unit, onCheck: (provider: String, economy: Boolean) -> Unit,
+) {
+    val view = ui.view ?: return
+    val editable = isAdmin && view.canChoose
+    Column(modifier = Modifier.fillMaxWidth().background(IdColor.Neutral100).padding(14.dp)) {
+        Text("MODEL AI", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            when {
+                !view.canChoose -> "Model ditentukan oleh IntelDes (kunci IntelDes dipakai)."
+                !isAdmin -> "Model organisasi ini diatur oleh admin."
+                else -> "Pilih model untuk tiap penyedia. Kosongkan untuk memakai model bawaan."
+            },
+            color = IdColor.Neutral700, fontSize = 12.sp, lineHeight = 17.sp,
+        )
+        listOf("gemini" to "Gemini", "claude" to "Claude", "openrouter" to "OpenRouter").forEach { (key, label) ->
+            Spacer(Modifier.height(12.dp))
+            HorizontalDivider(thickness = 1.dp, color = IdColor.Neutral300)
+            Spacer(Modifier.height(8.dp))
+            Text(label, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            val eff = view.effective?.get(key)
+            val catalog = when (key) { "gemini" -> view.catalog?.gemini; "claude" -> view.catalog?.claude; else -> view.catalog?.openrouter }.orEmpty()
+            listOf(false to "Normal", true to "Hemat").forEach { (economy, tierLabel) ->
+                val shown = (if (economy) eff?.economy else eff?.normal)
+                val checkKey = key + if (economy) "/hemat" else ""
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "$tierLabel · dipakai: " + (shown?.model?.let { "$it (${shown.source})" } ?: "belum dipilih"),
+                    color = IdColor.Neutral700, fontSize = 11.5.sp,
+                )
+                if (editable) {
+                    val typed = ui.draft[key]?.let { if (economy) it.economy else it.normal }.orEmpty()
+                    ModelField(typed, if (key == "openrouter") "vendor/nama-model" else "id model") { onEdit(key, economy, it) }
+                    Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState())) {
+                        catalog.take(12).forEach { c ->
+                            Text(
+                                c.label.ifBlank { c.id }, fontSize = 10.5.sp, maxLines = 1, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.background(if (typed == c.id) IdColor.Accent else IdColor.Neutral200).clickable { onEdit(key, economy, c.id) }.padding(horizontal = 9.dp, vertical = 6.dp),
+                                color = if (typed == c.id) IdColor.White else IdColor.Neutral800,
+                            )
+                        }
+                    }
+                }
+                if (isAdmin) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (ui.checking == checkKey) "MENGUJI…" else "UJI",
+                            color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 11.sp,
+                            modifier = Modifier.clickable(enabled = ui.checking == null) { onCheck(key, economy) }.padding(vertical = 8.dp, horizontal = 2.dp),
+                        )
+                        ui.checks[checkKey]?.let {
+                            Text(
+                                (if (it.ok) "✓ " else "✗ ") + it.message + (it.ms?.let { ms -> " ($ms ms)" } ?: ""),
+                                color = if (it.ok) IdColor.Neutral800 else IdColor.Accent, fontSize = 11.sp, modifier = Modifier.padding(start = 10.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            if (key == "openrouter") Text("Daftar ID model: openrouter.ai/models", color = IdColor.Neutral600, fontSize = 10.5.sp, modifier = Modifier.padding(top = 2.dp))
+        }
+        if (editable) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                if (ui.saving) "MENYIMPAN…" else "SIMPAN MODEL",
+                color = IdColor.White, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().background(if (ui.dirty && !ui.saving) IdColor.Accent else IdColor.Neutral400).clickable(enabled = ui.dirty && !ui.saving, onClick = onSave).padding(vertical = 12.dp),
+            )
+        }
+        ui.message?.let { Text(it, color = IdColor.Neutral800, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp)) }
+    }
+    Spacer(Modifier.height(14.dp))
+}
+
+@Composable
+private fun ModelField(value: String, placeholder: String, onChange: (String) -> Unit) {
+    androidx.compose.foundation.text.BasicTextField(
+        value = value, onValueChange = onChange, singleLine = true,
+        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, color = IdColor.Text, fontWeight = FontWeight.SemiBold),
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).background(androidx.compose.ui.graphics.Color.White).padding(horizontal = 10.dp, vertical = 10.dp),
+        decorationBox = { inner -> if (value.isEmpty()) Text(placeholder, color = IdColor.Neutral500, fontSize = 13.sp); inner() },
+    )
 }

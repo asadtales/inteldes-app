@@ -28,8 +28,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         KnowledgeContextEntity::class,
         ContextSourceEntity::class,
         WebSyncStateEntity::class,
+        VideoEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -45,13 +46,14 @@ abstract class IntelDesDatabase : RoomDatabase() {
     abstract fun recordingMarkDao(): RecordingMarkDao
     abstract fun contextDao(): ContextDao
     abstract fun webSyncDao(): WebSyncDao
+    abstract fun videoDao(): VideoDao
 
     companion object {
         @Volatile private var instance: IntelDesDatabase? = null
 
         /** Every step from the first release to [version]; also what the migration test runs. */
         internal val ALL_MIGRATIONS: Array<Migration> by lazy {
-            arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+            arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
         }
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -107,7 +109,7 @@ abstract class IntelDesDatabase : RoomDatabase() {
                 val file = context.getDatabasePath("inteldes.db")
                 if (!file.exists()) return
                 val old = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { it.version }
-                if (old <= 0 || old >= 10) return
+                if (old <= 0 || old >= 11) return
                 val bak = java.io.File(file.parentFile, "inteldes_v$old.bak")
                 if (!bak.exists()) {
                     // The WAL may hold recent writes, so checkpoint through a normal open first.

@@ -159,9 +159,36 @@ class WebApi(
         text(Request.Builder().url("$base/v1/recordings/$id/trim-draft").delete().build())
     }
 
+    // ───────────────────────── AI models per provider ─────────────────────────
+
+    suspend fun aiModels(): com.inteldes.app.data.server.AiModelsView =
+        gson.fromJson(text(get("/v1/ai-models")), com.inteldes.app.data.server.AiModelsView::class.java)
+
+    /** Replaces the organisation's whole choice (admin; only while its own key is used). A blank id means "the default". */
+    suspend fun putAiModels(choice: com.inteldes.app.data.server.AiModelChoice): com.inteldes.app.data.server.AiModelsView =
+        gson.fromJson(text(put("/v1/ai-models", gson.toJson(choice), null)), com.inteldes.app.data.server.AiModelsView::class.java)
+
+    /** One tiny request to the provider with the key in use, to see that the model and the key work. Not counted in the quota. */
+    suspend fun checkAiModel(provider: String, model: String?, economy: Boolean): com.inteldes.app.data.server.AiCheck {
+        val body = JsonObject().apply {
+            addProperty("provider", provider)
+            if (!model.isNullOrBlank()) addProperty("model", model.trim())
+            addProperty("economy", economy)
+        }
+        return gson.fromJson(text(Request.Builder().url("$base/v1/ai-models/check").post(gson.toJson(body).toRequestBody(JSON)).build()), com.inteldes.app.data.server.AiCheck::class.java)
+    }
+
     /** The account's server settings (AI key source and quota); the app only reads them. */
     suspend fun settings(): com.inteldes.app.data.server.ServerSettingsView =
         gson.fromJson(text(get("/v1/settings")), com.inteldes.app.data.server.ServerSettingsView::class.java)
+
+    /** Registers short videos of a recording (their files are uploaded first). 409 blob_missing, 413 and 422 arrive as ServerException. */
+    override suspend fun putVideos(id: String, videos: List<WebVideo>) {
+        for (part in videos.chunked(20)) {
+            val body = JsonObject().apply { add("videos", gson.toJsonTree(part)) }
+            text(put("/v1/recordings/$id/videos", gson.toJson(body), null))
+        }
+    }
 
     /** Asks the server to transcribe and write the notulensi (202 = queued). 429 / 422 arrive as [ServerException] with the server's wording. */
     suspend fun processRecording(id: String, body: JsonObject) {

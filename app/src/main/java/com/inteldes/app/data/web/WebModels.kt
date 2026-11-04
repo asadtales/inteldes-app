@@ -65,6 +65,11 @@ data class WebPhoto(
     /** Geotag the server holds (null = none). Sent back unchanged: a photo sent WITHOUT it would erase it on the server. */
     val latitude: Double? = null, val longitude: Double? = null, val accuracyM: Double? = null, val placeName: String? = null,
 )
+/** A video as the server takes it (`VideoInput`): the file must be uploaded first, `deletedAt` removes it. */
+data class WebVideo(
+    val id: String, val blobSha256: String, val takenAtSec: Int?, val caption: String, val createdAt: Long, val deletedAt: Long? = null,
+    val latitude: Double? = null, val longitude: Double? = null, val accuracyM: Double? = null, val placeName: String? = null,
+)
 data class WebChat(val id: String, val orderIndex: Int, val isUser: Boolean, val text: String, val createdAt: Long)
 
 data class WebTranscriptPart(val version: Int, val segments: List<WebSegment>)

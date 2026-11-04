@@ -32,8 +32,18 @@ data class TranscriptSegment(val speaker: String, val timestampSec: Int, val tex
 data class ChatMessage(val isUser: Boolean, val text: String, val createdAt: Long)
 data class RecordingMark(val id: Long, val timestampSec: Int, val label: String)
 
+/** A short video attached to a recording. [syncState] says what the server knows: sent, waiting, or refused (with why). */
+data class Video(
+    val id: Long, val filePath: String, val takenAtSec: Int?, val caption: String, val durationSec: Double?, val sizeBytes: Long,
+    val latitude: Double? = null, val longitude: Double? = null, val placeName: String? = null,
+    val synced: Boolean = false, val syncError: String? = null,
+)
+
 /** A photo attached to a recording; [takenAtSec] is the offset into the audio when it was added, if known. */
-data class Photo(val id: Long, val filePath: String, val takenAtSec: Int?, val caption: String)
+data class Photo(
+    val id: Long, val filePath: String, val takenAtSec: Int?, val caption: String,
+    val latitude: Double? = null, val longitude: Double? = null, val accuracyM: Double? = null, val placeName: String? = null,
+)
 
 sealed interface SectionContent {
     data class Paragraph(val text: String) : SectionContent

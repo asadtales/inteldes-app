@@ -116,6 +116,18 @@ private class FakeServer : WebRemote {
         touch(id)
     }
 
+    val videos = mutableMapOf<String, WebVideo>()
+    var videoError: ServerException? = null
+    override suspend fun putVideos(id: String, videos: List<WebVideo>) {
+        calls += "putVideos"
+        videoError?.let { throw it }
+        if (recs[id] == null) throw ServerException(404, "not_found", "x")
+        videos.forEach { v ->
+            if (v.deletedAt == null && v.blobSha256 !in blobs) throw ServerException(409, "blob_missing", "x")
+            if (v.deletedAt != null) this.videos.remove(v.id) else this.videos[v.id] = v
+        }
+    }
+
     override suspend fun deleteRecording(id: String) {
         calls += "delete"
         val r = recs[id] ?: throw ServerException(404, "not_found", "x")
@@ -181,6 +193,13 @@ private class FakeServer : WebRemote {
 }
 
 private class FakeLocal(private val dir: File) : WebLocal {
+    val pending = mutableListOf<LocalVideo>()
+    val synced = mutableMapOf<Long, String>()
+    val failed = mutableMapOf<Long, String>()
+    override suspend fun pendingVideos() = pending.filter { it.rowId !in synced && it.rowId !in failed }
+    override suspend fun videoSynced(rowId: Long, sha256: String) { synced[rowId] = sha256 }
+    override suspend fun videoFailed(rowId: Long, message: String) { failed[rowId] = message }
+
     class Rec(var input: WebRecordingInput, var transcript: List<WebSegment> = emptyList(), var sections: List<WebSection> = emptyList(),
               var marks: List<WebMark> = emptyList(), var chat: List<WebChat> = emptyList(), var audio: File? = null, var working: Boolean = false,
               var photos: List<LocalPhoto> = emptyList())
@@ -352,6 +371,64 @@ class WebSyncEngineTest {
         val after = server.recs.getValue("r1").photos.single()
         assertEquals("Balai Desa, depan", after.caption)
         assertEquals(-7.12345, after.latitude!!, 0.00001)
+    }
+
+    private fun clip(row: Long, rec: String, caption: String = "Lapangan", deleted: Boolean = false, sha: String? = null): LocalVideo {
+        val f = File(dir, "v$row.mp4").also { it.writeBytes(byteArrayOf(row.toByte(), 7, 7)) }
+        return LocalVideo(row, rec, "vid-$row", f, 12, caption, 5L, "video/mp4", deleted, sha, latitude = -7.1, longitude = 110.2, accuracyM = 5.0, placeName = "Balai")
+    }
+
+    @Test
+    fun aVideoOfARecordingTheServerHasIsUploadedThenRegisteredWithItsGeotag() {
+        phone.create("r1", "Rapat", status = "DONE", audio = "A", transcript = true, notes = true)
+        sync()
+        phone.pending += clip(1, "r1")
+        val report = sync()
+        assertEquals(0, report.failed)
+        val v = server.videos.getValue("vid-1")
+        assertEquals("Lapangan", v.caption)
+        assertEquals(-7.1, v.latitude!!, 1e-9)
+        assertEquals(12, v.takenAtSec)
+        assertTrue(phone.synced.containsKey(1L))
+        assertTrue(server.blobs.containsKey(v.blobSha256))
+    }
+
+    @Test
+    fun aVideoWaitsUntilItsRecordingIsOnTheServer() {
+        phone.create("r2", "Belum terkirim")                                       // RAW, never synced yet
+        phone.pending += clip(2, "r2")
+        val mine = FakeStore()
+        runBlocking { WebSyncEngine(phone, server, mine, excluded = { setOf("r2") }).run() }
+        assertEquals(0, server.count("putVideos"))
+        assertTrue(phone.synced.isEmpty())
+    }
+
+    @Test
+    fun aVideoRemovedOnThePhoneIsRemovedOnTheServer() {
+        phone.create("r1", "Rapat", status = "DONE", audio = "A", transcript = true, notes = true)
+        sync()
+        phone.pending += clip(3, "r1")
+        sync()
+        val sha = server.videos.getValue("vid-3").blobSha256
+        phone.pending.clear()
+        phone.pending += clip(3, "r1", deleted = true, sha = sha)
+        phone.synced.remove(3L)
+        sync()
+        assertTrue(server.videos.isEmpty())
+    }
+
+    @Test
+    fun aVideoTheServerRefusesIsRememberedWithItsReasonAndNotCountedAsAFailedRun() {
+        phone.create("r1", "Rapat", status = "DONE", audio = "A", transcript = true, notes = true)
+        sync()
+        server.videoError = ServerException(422, "not_video", "Video lebih dari 120 detik")
+        phone.pending += clip(4, "r1")
+        val report = sync()
+        assertEquals(0, report.failed)
+        assertEquals("Video lebih dari 120 detik", phone.failed[4L])
+        server.calls.clear()
+        sync()
+        assertEquals(0, server.count("putVideos"))                                  // not tried again
     }
 
     @Test

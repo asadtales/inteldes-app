@@ -22,7 +22,7 @@ import java.util.Locale
  * with page numbers. Works offline.
  */
 internal object PdfExporter {
-    private val dateFormat = SimpleDateFormat("dd MMMM yyyy, HH:mm", Locale("id", "ID"))
+    private val dateFormat get() = com.inteldes.app.ui.util.Wib.formatter("dd MMMM yyyy, HH:mm")
     private const val MAX_PHOTO_PX = 1400
 
     private val regular = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.SANS_SERIF }

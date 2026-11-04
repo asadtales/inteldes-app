@@ -25,6 +25,9 @@ interface WebRemote {
 
     /** Merged by id on the server; the photo files must be uploaded first (`409 blob_missing` otherwise). */
     suspend fun putPhotos(id: String, photos: List<WebPhoto>)
+
+    /** Same for short videos. A server that does not know videos (an old one) just refuses. */
+    suspend fun putVideos(id: String, videos: List<WebVideo>) {}
     suspend fun deleteRecording(id: String)
     suspend fun listCategories(): List<WebCategory>
     suspend fun putCategory(id: String, label: String, orderIndex: Int, ifMatch: Int): WebCategory
@@ -38,6 +41,13 @@ class LocalCategory(val id: String, val label: String, val orderIndex: Int)
 /** A photo as the phone holds it: [id] is the server's id (or the content-derived one), [file] the image. */
 class LocalPhoto(
     val id: String, val file: File, val takenAtSec: Int?, val caption: String, val createdAt: Long,
+    val latitude: Double? = null, val longitude: Double? = null, val accuracyM: Double? = null, val placeName: String? = null,
+)
+
+/** A video the sync still has to deal with: send it, or tell the server it was removed ([deleted], then [sha256] is what the server holds). */
+class LocalVideo(
+    val rowId: Long, val recordingId: String, val id: String, val file: File?, val takenAtSec: Int?, val caption: String, val createdAt: Long,
+    val mime: String, val deleted: Boolean, val sha256: String?,
     val latitude: Double? = null, val longitude: Double? = null, val accuracyM: Double? = null, val placeName: String? = null,
 )
 
@@ -55,6 +65,11 @@ class LocalAggregate(
 
 /** The phone side. Implementations must never delete a recording on their own. */
 interface WebLocal {
+    /** Videos waiting to be sent or removed on the server. Defaults to none (a phone side without videos). */
+    suspend fun pendingVideos(): List<LocalVideo> = emptyList()
+    suspend fun videoSynced(rowId: Long, sha256: String) {}
+    suspend fun videoFailed(rowId: Long, message: String) {}
+
     suspend fun recordingIds(): List<String>
     suspend fun exists(id: String): Boolean
 
@@ -166,7 +181,44 @@ class WebSyncEngine(
             guarded(report, id) { pushOne(id, report) }
         }
         guarded(report, "audio") { retryMissingAudio() }
+        if (!pullOnly) { progress("Mengirim video…"); pushVideos(report) }
         return report
+    }
+
+    // ───────────────────────── short videos (phone to server only) ─────────────────────────
+
+    /**
+     * Sends videos added on the phone (file first, then the list) and tells the server about the ones removed here.
+     * Only for recordings the server already has. A refusal for the video itself (too long, not a video) is remembered
+     * with its reason and not retried; anything else is retried on the next run.
+     */
+    private suspend fun pushVideos(report: WebSyncReport) {
+        for (v in local.pendingVideos()) {
+            if (v.recordingId in skipped) continue
+            if (store.get(v.recordingId) == null) continue                       // the recording is not on the server yet
+            guarded(report, "video") {
+                try {
+                    if (v.deleted) {
+                        val sha = v.sha256 ?: return@guarded
+                        remote.putVideos(v.recordingId, listOf(WebVideo(v.id, sha, v.takenAtSec, v.caption, v.createdAt, deletedAt = System.currentTimeMillis())))
+                        local.videoSynced(v.rowId, sha)
+                    } else {
+                        val file = v.file?.takeIf { it.exists() } ?: return@guarded
+                        val sha = sha256(file)
+                        if (!remote.blobExists(sha)) remote.uploadBlob(sha, v.mime, file)
+                        remote.putVideos(
+                            v.recordingId,
+                            listOf(WebVideo(v.id, sha, v.takenAtSec?.coerceAtLeast(0), v.caption.take(1000), v.createdAt, null, v.latitude, v.longitude, v.accuracyM, v.placeName?.take(200))),
+                        )
+                        local.videoSynced(v.rowId, sha)
+                        report.pushed++
+                    }
+                } catch (e: ServerException) {
+                    // 413 / 422: the server will never take this video; keep the reason and stop trying
+                    if (e.status == 413 || (e.status == 422 && e.code != "blob_missing")) local.videoFailed(v.rowId, e.message ?: "Server menolak video ini.") else throw e
+                }
+            }
+        }
     }
 
     // ───────────────────────── categories ─────────────────────────

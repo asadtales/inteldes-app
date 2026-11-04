@@ -6,6 +6,7 @@ import com.inteldes.app.data.model.Photo
 import com.inteldes.app.data.model.Recording
 import com.inteldes.app.data.model.RecordingMark
 import com.inteldes.app.data.model.TranscriptSegment
+import com.inteldes.app.data.model.Video
 
 /** Rows written before custom categories existed stored the enum constant name (e.g. "BUMDES"); show the proper label for those. */
 private val LEGACY_KIND_LABELS = mapOf("MUSDES" to "Musdes", "BPD" to "BPD", "BUMDES" to "BUMDes", "WARGA" to "Warga", "LAINNYA" to "Lainnya")
@@ -19,7 +20,8 @@ fun RecordingEntity.toDomain() = Recording(
 )
 
 fun NoteSectionEntity.toDomain() = NoteSection(title, SectionCodec.decode(type, payload))
-fun PhotoEntity.toDomain() = Photo(id, filePath, takenAtSec, caption)
+fun PhotoEntity.toDomain() = Photo(id, filePath, takenAtSec, caption, latitude, longitude, accuracyM, placeName)
+fun VideoEntity.toDomain() = Video(id, filePath, takenAtSec, caption, durationSec, sizeBytes, latitude, longitude, placeName, syncedSha != null, syncError)
 fun TranscriptSegmentEntity.toDomain() = TranscriptSegment(speaker, timestampSec, text)
 fun ChatMessageEntity.toDomain() = ChatMessage(isUser, text, createdAt)
 fun RecordingMarkEntity.toDomain() = RecordingMark(id, timestampSec, label)

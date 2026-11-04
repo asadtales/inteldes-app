@@ -36,6 +36,7 @@ class NotulensiGenerator(private val securePrefs: SecurePrefs) {
                     ?: throw ApiException("API key Claude belum diatur. Buka Pengaturan → Agent AI.")
                 ClaudeClient(key, model = if (economyMode) ClaudeClient.MODEL_HAIKU else ClaudeClient.MODEL_SONNET)
             }
+            AiProvider.OPENROUTER -> throw ApiException("OpenRouter hanya tersedia lewat server IntelDes. Pilih \"Server IntelDes\" pada dialog proses, atau pilih agent lain di Pengaturan.")
             AiProvider.AUTO -> throw IllegalStateException("resolve() must be called before clientFor()")
         }
     }

@@ -133,7 +133,7 @@ fun RecordingDetailsDialog(
                 color = IdColor.Accent,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.clickable {
-                    val finalTitle = title.ifBlank { "Rapat ${SimpleDateFormat("d MMM yyyy, HH:mm", Locale("id", "ID")).format(Date())}" }
+                    val finalTitle = title.ifBlank { "Rapat ${com.inteldes.app.ui.util.Wib.format("d MMM yyyy, HH:mm", System.currentTimeMillis())}" }
                     onConfirm(finalTitle, kind, template, locationName.trim().takeIf { it.isNotEmpty() }?.let { LocationInfo(it, fix?.latitude, fix?.longitude) })
                 }.padding(10.dp),
             )

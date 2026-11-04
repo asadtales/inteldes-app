@@ -7,7 +7,7 @@ val DEFAULT_CATEGORIES = listOf("Musdes", "BPD", "BUMDes", "Warga")
 
 enum class WhisperEngine { ON_DEVICE, CLOUD }
 
-enum class AiProvider(val label: String) { AUTO("Otomatis (disarankan)"), GEMINI("Gemini 2.5 Pro"), CLAUDE("Claude Sonnet") }
+enum class AiProvider(val label: String) { AUTO("Otomatis (disarankan)"), GEMINI("Gemini 2.5 Pro"), CLAUDE("Claude Sonnet"), OPENROUTER("OpenRouter (lewat server)") }
 
 enum class OutputLanguage(val label: String, val promptName: String) {
     INDONESIA("Indonesia", "Bahasa Indonesia formal"),

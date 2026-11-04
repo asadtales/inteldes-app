@@ -144,7 +144,7 @@ object SyncNames {
         title.replace(Regex("[\\\\/:*?\"<>|]"), "-").replace(Regex("\\s+"), " ").trim().take(60).trim().ifBlank { "Rapat" }
 
     /** Date part of a recording's folder name; computed once, then reused so time zones can't rename it. */
-    fun datePrefix(createdAt: Long): String = SimpleDateFormat("yyyy-MM-dd HHmm", Locale.US).format(Date(createdAt))
+    fun datePrefix(createdAt: Long): String = SimpleDateFormat("yyyy-MM-dd HHmm", Locale.US).apply { timeZone = com.inteldes.app.ui.util.Wib.zone }.format(Date(createdAt))
 
     fun recordingFolderName(prefix: String, title: String) = "$prefix - ${cleanTitle(title)}"
 

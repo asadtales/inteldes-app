@@ -184,7 +184,7 @@ fun TrimStudio(
     )
 
     // Autosave 1.5 s after the last change, and once more when the app goes to the background.
-    val clockFormat = remember { SimpleDateFormat("d MMM yyyy HH.mm", Locale("id", "ID")).apply { timeZone = WIB } }
+    val clockFormat = remember { com.inteldes.app.ui.util.Wib.formatter("d MMM yyyy HH.mm") }
     suspend fun saveNow() {
         if (!hasWork) { onDraftClear(); draftNote = null; return }
         draftNote = "Menyimpan draf…"

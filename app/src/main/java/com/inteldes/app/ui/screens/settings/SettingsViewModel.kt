@@ -109,6 +109,83 @@ class SettingsViewModel(
         viewModelScope.launch { _serverAi.value = runCatching { account.api.settings() }.getOrNull() }
     }
 
+    // ───────────────────────── AI model per provider (server) ─────────────────────────
+
+    data class AiModelsUi(
+        val view: com.inteldes.app.data.server.AiModelsView? = null,
+        /** What is typed in the fields: "gemini" | "claude" | "openrouter" to its two ids. */
+        val draft: Map<String, com.inteldes.app.data.server.AiTier> = emptyMap(),
+        val saving: Boolean = false,
+        val message: String? = null,
+        /** The key of the test that is running, e.g. "claude/hemat". */
+        val checking: String? = null,
+        val checks: Map<String, com.inteldes.app.data.server.AiCheck> = emptyMap(),
+    ) {
+        val dirty: Boolean get() = view != null && draft != draftOf(view)
+        companion object {
+            fun draftOf(v: com.inteldes.app.data.server.AiModelsView) = mapOf(
+                "gemini" to (v.choice?.gemini ?: com.inteldes.app.data.server.AiTier()),
+                "claude" to (v.choice?.claude ?: com.inteldes.app.data.server.AiTier()),
+                "openrouter" to (v.choice?.openrouter ?: com.inteldes.app.data.server.AiTier()),
+            ).mapValues { (_, t) -> com.inteldes.app.data.server.AiTier(t.normal.orEmpty(), t.economy.orEmpty()) }
+        }
+    }
+
+    private val _aiModels = MutableStateFlow(AiModelsUi())
+    val aiModels: StateFlow<AiModelsUi> = _aiModels
+
+    fun refreshAiModels() {
+        if (!account.loggedIn) { _aiModels.value = AiModelsUi(); return }
+        viewModelScope.launch {
+            runCatching { com.inteldes.app.data.web.WebApi(account.api).aiModels() }.onSuccess { v ->
+                _aiModels.value = AiModelsUi(view = v, draft = AiModelsUi.draftOf(v))
+            }
+        }
+    }
+
+    fun editModel(provider: String, economy: Boolean, value: String) {
+        val cur = _aiModels.value
+        val tier = cur.draft[provider] ?: com.inteldes.app.data.server.AiTier("", "")
+        val next = if (economy) tier.copy(economy = value.take(120)) else tier.copy(normal = value.take(120))
+        _aiModels.value = cur.copy(draft = cur.draft + (provider to next), message = null)
+    }
+
+    fun saveAiModels() {
+        val cur = _aiModels.value
+        if (cur.saving || cur.view == null) return
+        _aiModels.value = cur.copy(saving = true, message = null)
+        fun tier(p: String) = cur.draft[p]?.let { t ->
+            val n = t.normal.orEmpty().trim(); val e = t.economy.orEmpty().trim()
+            if (n.isEmpty() && e.isEmpty()) null else com.inteldes.app.data.server.AiTier(n.ifEmpty { null }, e.ifEmpty { null })
+        }
+        viewModelScope.launch {
+            try {
+                val saved = com.inteldes.app.data.web.WebApi(account.api).putAiModels(
+                    com.inteldes.app.data.server.AiModelChoice(tier("gemini"), tier("claude"), tier("openrouter")),
+                )
+                _aiModels.value = AiModelsUi(view = saved, draft = AiModelsUi.draftOf(saved), message = "Model tersimpan.")
+            } catch (e: Exception) {
+                _aiModels.value = _aiModels.value.copy(saving = false, message = com.inteldes.app.data.server.userMessage(e))
+            }
+        }
+    }
+
+    /** Asks the server to try [provider] with the id typed in the field (or the one in use when the field is empty). */
+    fun checkModel(provider: String, economy: Boolean) {
+        val cur = _aiModels.value
+        val key = provider + if (economy) "/hemat" else ""
+        val typed = cur.draft[provider]?.let { if (economy) it.economy else it.normal }
+        _aiModels.value = cur.copy(checking = key)
+        viewModelScope.launch {
+            val result = try {
+                com.inteldes.app.data.web.WebApi(account.api).checkAiModel(provider.uppercase(), typed, economy)
+            } catch (e: Exception) {
+                com.inteldes.app.data.server.AiCheck(false, com.inteldes.app.data.server.userMessage(e))
+            }
+            _aiModels.value = _aiModels.value.copy(checking = null, checks = _aiModels.value.checks + (key to result))
+        }
+    }
+
     fun setWebSync(on: Boolean) {
         webSync.enabled = on
         if (on) com.inteldes.app.data.work.WebSyncWorker.enqueue(appContext)
@@ -194,6 +271,36 @@ class SettingsViewModel(
     fun setEconomyMode(enabled: Boolean) { viewModelScope.launch { store.setEconomyMode(enabled) } }
     fun setAutoProcessAfterRecording(enabled: Boolean) { viewModelScope.launch { store.setAutoProcessAfterRecording(enabled) } }
     fun setMarkWithVolumeButton(enabled: Boolean) { viewModelScope.launch { store.setMarkWithVolumeButton(enabled) } }
+    // ───────────────────────── photo geotag and logo ─────────────────────────
+
+    fun setPhotoGeotag(on: Boolean) { viewModelScope.launch { store.setPhotoGeotag(on); if (!on) store.setPhotoGeoStamp(false) } }
+    fun setPhotoGeoStamp(on: Boolean) { viewModelScope.launch { store.setPhotoGeoStamp(on) } }
+    fun setPhotoLogo(on: Boolean) { viewModelScope.launch { store.setPhotoLogo(on) } }
+
+    private val _logoPresent = MutableStateFlow(com.inteldes.app.data.photo.PhotoLogo.exists(appContext))
+    val logoPresent: StateFlow<Boolean> = _logoPresent
+    private val _logoMessage = MutableStateFlow<String?>(null)
+    val logoMessage: StateFlow<String?> = _logoMessage
+
+    fun chooseLogo(uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                com.inteldes.app.data.photo.PhotoLogo.save(appContext, uri)
+                _logoPresent.value = true
+                _logoMessage.value = "Logo tersimpan."
+                store.setPhotoLogo(true)
+            } catch (e: Exception) {
+                _logoMessage.value = e.message ?: "Logo tidak bisa dipakai."
+            }
+        }
+    }
+
+    fun clearLogo() {
+        com.inteldes.app.data.photo.PhotoLogo.clear(appContext)
+        _logoPresent.value = false
+        _logoMessage.value = "Logo dihapus; foto memakai logo IntelDes."
+    }
+
     fun addSpeakerRosterName(name: String) { viewModelScope.launch { store.addSpeakerRosterName(name) } }
     fun removeSpeakerRosterName(name: String) { viewModelScope.launch { store.removeSpeakerRosterName(name) } }
 

@@ -47,6 +47,34 @@ class WebApiTest {
     private val recording = WebRecordingInput("Rapat", "Musdes", 1_000L, 60, null, "audio/mp4", "RAW", 0, "CLOUD", "builtin_standard", "Notulensi Standar", null, null, null, null, null, null, null, null)
 
     @Test
+    fun theAiModelsAreReadSavedAndTestedThroughTheServer() {
+        respond { r ->
+            when {
+                r.path == "/v1/ai-models/check" -> json(200, """{"ok":true,"message":"Model menjawab","ms":420}""")
+                else -> json(200, """{"keySource":"own","canChoose":true,"choice":{"claude":{"normal":"claude-sonnet-5"}},"platformDefaults":{},
+                    "catalog":{"gemini":[{"id":"gemini-2.5-flash","label":"Gemini 2.5 Flash"}],"claude":[],"openrouter":[{"id":"google/gemini-2.5-flash","label":"Gemini Flash"}]},
+                    "effective":{"gemini":{"normal":{"model":null,"source":null},"economy":{"model":null,"source":null}},
+                    "claude":{"normal":{"model":"claude-sonnet-5","source":"organisasi"},"economy":{"model":null,"source":null}},
+                    "openrouter":{"normal":{"model":null,"source":null},"economy":{"model":null,"source":null}}}}""")
+            }
+        }
+        val view = runBlocking { api().aiModels() }
+        assertTrue(view.canChoose)
+        assertEquals("claude-sonnet-5", view.effective!!["claude"]!!.normal!!.model)
+        assertEquals("organisasi", view.effective!!["claude"]!!.normal!!.source)
+        assertEquals("google/gemini-2.5-flash", view.catalog!!.openrouter!!.single().id)
+        runBlocking { api().putAiModels(com.inteldes.app.data.server.AiModelChoice(openrouter = com.inteldes.app.data.server.AiTier("google/gemini-2.5-flash", null))) }
+        val put = seen.last { it.method == "PUT" }
+        assertEquals("/v1/ai-models", put.path)
+        val body = put.body.readUtf8()
+        assertTrue(body.contains("\"openrouter\"") && body.contains("google/gemini-2.5-flash") && !body.contains("claude"))
+        val check = runBlocking { api().checkAiModel("OPENROUTER", " google/gemini-2.5-flash ", economy = false) }
+        assertTrue(check.ok)
+        assertEquals(420, check.ms)
+        assertTrue(seen.last().body.readUtf8().contains("\"model\":\"google/gemini-2.5-flash\""))
+    }
+
+    @Test
     fun aShareLinkIsMadeWithTheChosenOptionsAndItsRelativeUrlBecomesAbsolute() {
         respond { json(201, """{"id":"s1","includeTranscript":true,"includeAudio":false,"createdAt":5,"expiresAt":null,"revokedAt":null,"downloadCount":0,"url":"/s/TOKEN123"}""") }
         val made = runBlocking { api().createShare("r1", includeTranscript = true, includeAudio = false, expiresInDays = null) }

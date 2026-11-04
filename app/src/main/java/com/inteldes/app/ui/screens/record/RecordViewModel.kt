@@ -25,13 +25,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
 
 /** A photo taken during the recording; [offsetSec] is how far into the audio it was added. */
-data class PendingPhoto(val file: File, val offsetSec: Int)
+data class PendingPhoto(val file: File, val offsetSec: Int, val geo: com.inteldes.app.data.photo.GeoFix? = null)
 
 private data class PhotoState(val photos: List<PendingPhoto> = emptyList(), val error: String? = null)
 
@@ -167,7 +168,8 @@ class RecordViewModel(
         viewModelScope.launch {
             try {
                 val file = PhotoStorage.import(appContext, uri)
-                photoState.value = PhotoState(photoState.value.photos + PendingPhoto(file, offset), null)
+                val geo = com.inteldes.app.data.photo.PhotoGeo.process(appContext, file, settingsStore.settings.first(), titleLine = null)
+                photoState.value = PhotoState(photoState.value.photos + PendingPhoto(file, offset, geo), null)
             } catch (e: Exception) {
                 photoState.value = photoState.value.copy(error = e.message ?: "Gagal menambahkan foto.")
             } finally {
@@ -194,7 +196,7 @@ class RecordViewModel(
                 audioFilePath = file?.absolutePath, engine = engine.value, template = template, location = location,
             )
             repository.addMarks(id, pendingMarks)
-            photos.forEach { repository.addPhoto(id, it.file, it.offsetSec) }
+            photos.forEach { repository.addPhoto(id, it.file, it.offsetSec, it.geo) }
             if (shouldAutoProcess) ProcessRecordingWorker.enqueue(appContext, id) else SyncWorker.enqueue(appContext)
             doneChannel.send(RecordingReady(id, shouldAutoProcess))
         }

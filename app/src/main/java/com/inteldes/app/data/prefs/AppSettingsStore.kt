@@ -42,6 +42,12 @@ data class AppSettings(
     val defaultTemplateId: String = BuiltInTemplates.STANDARD_ID,
     /** [com.inteldes.app.data.audio.MicOption.key] of the microphone the user picked; "" = automatic. */
     val preferredMicKey: String = "",
+    /** Photos get the phone's position (kept with the photo, in its EXIF, and sent on sync). Off by default: coordinates are sensitive. */
+    val photoGeotag: Boolean = false,
+    /** Also write the time (WIB) and coordinates on a strip along the bottom of the photo. Needs [photoGeotag]. */
+    val photoGeoStamp: Boolean = false,
+    /** Put the logo (the organisation's, or IntelDes' own) on that strip. */
+    val photoLogo: Boolean = false,
 )
 
 /** Non-secret app settings — everything except API keys, which live in [SecurePrefs]. */
@@ -60,6 +66,9 @@ class AppSettingsStore(private val context: Context) {
         val MARK_WITH_VOLUME = booleanPreferencesKey("mark_with_volume_button")
         val DEFAULT_TEMPLATE = stringPreferencesKey("default_template")
         val PREFERRED_MIC = stringPreferencesKey("preferred_mic")
+        val PHOTO_GEOTAG = booleanPreferencesKey("photo_geotag")
+        val PHOTO_GEO_STAMP = booleanPreferencesKey("photo_geo_stamp")
+        val PHOTO_LOGO = booleanPreferencesKey("photo_logo")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -79,6 +88,9 @@ class AppSettingsStore(private val context: Context) {
             markWithVolumeButton = p[Keys.MARK_WITH_VOLUME] ?: false,
             defaultTemplateId = p[Keys.DEFAULT_TEMPLATE] ?: BuiltInTemplates.STANDARD_ID,
             preferredMicKey = p[Keys.PREFERRED_MIC] ?: "",
+            photoGeotag = p[Keys.PHOTO_GEOTAG] ?: false,
+            photoGeoStamp = p[Keys.PHOTO_GEO_STAMP] ?: false,
+            photoLogo = p[Keys.PHOTO_LOGO] ?: false,
         )
     }
 
@@ -134,6 +146,10 @@ class AppSettingsStore(private val context: Context) {
     suspend fun setPreferredMicKey(key: String) {
         context.dataStore.edit { it[Keys.PREFERRED_MIC] = key }
     }
+
+    suspend fun setPhotoGeotag(on: Boolean) { context.dataStore.edit { it[Keys.PHOTO_GEOTAG] = on } }
+    suspend fun setPhotoGeoStamp(on: Boolean) { context.dataStore.edit { it[Keys.PHOTO_GEO_STAMP] = on } }
+    suspend fun setPhotoLogo(on: Boolean) { context.dataStore.edit { it[Keys.PHOTO_LOGO] = on } }
 
     suspend fun setDefaultTemplateId(id: String) {
         context.dataStore.edit { it[Keys.DEFAULT_TEMPLATE] = id }

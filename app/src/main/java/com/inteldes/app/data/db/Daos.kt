@@ -61,6 +61,48 @@ interface RecordingDao {
 }
 
 @Dao
+interface VideoDao {
+    @Query("SELECT * FROM videos WHERE recordingId = :recordingId AND deletedAt IS NULL ORDER BY createdAt")
+    fun observe(recordingId: String): Flow<List<VideoEntity>>
+
+    @Query("SELECT * FROM videos WHERE recordingId = :recordingId")
+    suspend fun list(recordingId: String): List<VideoEntity>
+
+    @Query("SELECT COUNT(*) FROM videos WHERE recordingId = :recordingId AND deletedAt IS NULL")
+    suspend fun count(recordingId: String): Int
+
+    @Query("SELECT * FROM videos WHERE id = :id")
+    suspend fun getOne(id: Long): VideoEntity?
+
+    @Insert
+    suspend fun insert(entity: VideoEntity): Long
+
+    @Query("UPDATE videos SET caption = :caption, syncedSha = NULL, syncError = NULL WHERE id = :id AND deletedAt IS NULL")
+    suspend fun updateCaption(id: Long, caption: String)
+
+    /** Soft delete: the row stays until the server has been told (when it ever knew the video). */
+    @Query("UPDATE videos SET deletedAt = :at WHERE id = :id")
+    suspend fun markDeleted(id: Long, at: Long)
+
+    @Query("DELETE FROM videos WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    /** What the sync still has to do: send new or edited videos, tell the server about removed ones. Refused ones wait. */
+    @Query("SELECT * FROM videos WHERE (deletedAt IS NULL AND syncedSha IS NULL AND syncError IS NULL) OR (deletedAt IS NOT NULL AND syncedSha IS NOT NULL)")
+    suspend fun pending(): List<VideoEntity>
+
+    /** A removed video the server never saw has nothing to be told about. */
+    @Query("DELETE FROM videos WHERE deletedAt IS NOT NULL AND syncedSha IS NULL")
+    suspend fun purgeNeverSent()
+
+    @Query("UPDATE videos SET syncedSha = :sha, syncError = NULL WHERE id = :id")
+    suspend fun markSynced(id: Long, sha: String)
+
+    @Query("UPDATE videos SET syncError = :message WHERE id = :id")
+    suspend fun markFailed(id: Long, message: String)
+}
+
+@Dao
 interface RecordingMarkDao {
     @Query("SELECT * FROM recording_marks WHERE recordingId = :recordingId ORDER BY timestampSec ASC")
     fun observeForRecording(recordingId: String): Flow<List<RecordingMarkEntity>>

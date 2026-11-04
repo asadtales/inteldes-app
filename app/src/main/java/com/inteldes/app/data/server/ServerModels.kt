@@ -43,7 +43,26 @@ data class AiAccess(
 )
 
 /** Which AI keys the server can actually use for this account ({deepgram, gemini, claude} readiness). */
-data class AiReady(val deepgram: Boolean = false, val gemini: Boolean = false, val claude: Boolean = false)
+data class AiReady(val deepgram: Boolean = false, val gemini: Boolean = false, val claude: Boolean = false, val openrouter: Boolean = false)
+
+/** The model chosen for one provider: [normal], and [economy] for the saving mode (blank = the normal one / the default). */
+data class AiTier(val normal: String? = null, val economy: String? = null)
+data class AiModelChoice(val gemini: AiTier? = null, val claude: AiTier? = null, val openrouter: AiTier? = null)
+data class AiCatalogEntry(val id: String = "", val label: String = "")
+data class AiCatalog(val gemini: List<AiCatalogEntry>? = null, val claude: List<AiCatalogEntry>? = null, val openrouter: List<AiCatalogEntry>? = null)
+
+/** The model that will really be used and where it comes from: "organisasi", "platform" or "env" (null = none chosen yet). */
+data class AiEffective(val model: String? = null, val source: String? = null)
+data class AiEffectivePair(val normal: AiEffective? = null, val economy: AiEffective? = null)
+
+/** GET /v1/ai-models. [canChoose] is false while the IntelDes key is used: then the superadmin decides the models. */
+data class AiModelsView(
+    val keySource: String = "own", val canChoose: Boolean = false, val choice: AiModelChoice? = null,
+    val platformDefaults: AiModelChoice? = null, val catalog: AiCatalog? = null, val effective: Map<String, AiEffectivePair>? = null,
+)
+
+/** Answer of the one-request test of a model (always HTTP 200; the verdict is in [ok] and [message]). */
+data class AiCheck(val ok: Boolean = false, val message: String = "", val ms: Int? = null)
 
 data class ServerSettingsView(val aiAccess: AiAccess? = null, val ai: AiReady? = null)
 

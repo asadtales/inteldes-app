@@ -182,6 +182,23 @@ class RoomWebLocal(context: Context, private val db: IntelDesDatabase) : WebLoca
         }
     }
 
+    override suspend fun pendingVideos(): List<LocalVideo> {
+        db.videoDao().purgeNeverSent()
+        return db.videoDao().pending().map { v ->
+            LocalVideo(
+                v.id, v.recordingId, v.uuid, File(v.filePath).takeIf { v.deletedAt == null }, v.takenAtSec, v.caption, v.createdAt, v.mime,
+                deleted = v.deletedAt != null, sha256 = v.syncedSha, latitude = v.latitude, longitude = v.longitude, accuracyM = v.accuracyM, placeName = v.placeName,
+            )
+        }
+    }
+
+    override suspend fun videoSynced(rowId: Long, sha256: String) {
+        val v = db.videoDao().getOne(rowId) ?: return
+        if (v.deletedAt != null) db.videoDao().delete(rowId) else db.videoDao().markSynced(rowId, sha256)
+    }
+
+    override suspend fun videoFailed(rowId: Long, message: String) { db.videoDao().markFailed(rowId, message.take(300)) }
+
     override suspend fun categories(): List<LocalCategory> = db.categoryDao().list().map { LocalCategory(it.id, it.label, it.orderIndex) }
 
     override suspend fun addCategory(id: String, label: String, orderIndex: Int) {

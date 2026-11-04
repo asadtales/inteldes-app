@@ -39,6 +39,42 @@ object LocationHelper {
         return LocationInfo(placeName(context, location), location.latitude, location.longitude)
     }
 
+    /**
+     * A position for a photo: a fresh fix if one arrives within [com.inteldes.app.data.photo.PhotoGeoRules.FIX_TIMEOUT_MS],
+     * otherwise the last known one only when it is recent and precise ([com.inteldes.app.data.photo.PhotoGeoRules.cachedAcceptable]).
+     * Null when permission is missing or neither exists: the photo then simply has no geotag.
+     */
+    @Suppress("MissingPermission")
+    suspend fun photoFix(context: Context): Location? {
+        if (!hasPermission(context)) return null
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            .filter { runCatching { manager.isProviderEnabled(it) }.getOrDefault(false) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            var left = com.inteldes.app.data.photo.PhotoGeoRules.FIX_TIMEOUT_MS
+            for ((i, provider) in providers.withIndex()) {
+                val share = if (i == 0 && providers.size > 1) left * 7 / 10 else left
+                val started = System.currentTimeMillis()
+                val fresh = withTimeoutOrNull(share) {
+                    suspendCancellableCoroutine<Location?> { cont ->
+                        val cancel = android.os.CancellationSignal()
+                        cont.invokeOnCancellation { cancel.cancel() }
+                        manager.getCurrentLocation(provider, cancel, Executors.newSingleThreadExecutor()) { cont.resume(it) }
+                    }
+                }
+                if (fresh != null) return fresh
+                left -= System.currentTimeMillis() - started
+            }
+        }
+        val now = System.currentTimeMillis()
+        return providers.mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
+            .filter { com.inteldes.app.data.photo.PhotoGeoRules.cachedAcceptable(now - it.time, if (it.hasAccuracy()) it.accuracy else null) }
+            .maxByOrNull { it.time }
+    }
+
+    /** The readable place of a position (needs the internet for the geocoder); the coordinates when none can be found. */
+    suspend fun placeNameOf(context: Context, location: Location): String = placeName(context, location)
+
     @Suppress("MissingPermission")
     private suspend fun currentFix(context: Context): Location? {
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null

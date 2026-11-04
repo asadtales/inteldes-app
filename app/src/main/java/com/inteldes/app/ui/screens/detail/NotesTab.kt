@@ -80,6 +80,10 @@ internal fun NotesTab(
     onUpdateCaption: (Photo, String) -> Unit,
     onDeletePhoto: (Photo) -> Unit,
     onShareLink: () -> Unit = {},
+    videos: List<com.inteldes.app.data.model.Video> = emptyList(),
+    onAddVideo: (Uri, Boolean) -> Unit = { _, _ -> },
+    onVideoCaption: (com.inteldes.app.data.model.Video, String) -> Unit = { _, _ -> },
+    onDeleteVideo: (com.inteldes.app.data.model.Video) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showTemplatePicker by remember { mutableStateOf(false) }
@@ -155,6 +159,11 @@ internal fun NotesTab(
                     pair.forEach { photo -> PhotoCard(photo, Modifier.weight(1f)) { viewing = photo } }
                     if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
+            }
+
+            item {
+                Spacer(Modifier.height(8.dp))
+                com.inteldes.app.ui.components.VideoDocumentation(videos, onAddVideo, onVideoCaption, onDeleteVideo)
             }
 
             item {
@@ -459,6 +468,21 @@ internal fun PhotoViewerDialog(
             photo.takenAtSec?.let {
                 Text("Menit ${formatRecordTimer(it)}", color = IdColor.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
+            }
+            val context = LocalContext.current
+            if (photo.latitude != null && photo.longitude != null) {
+                // The geotag, tappable: opens the position in a map app.
+                val where = com.inteldes.app.data.photo.PhotoGeoRules.coordinates(photo.latitude, photo.longitude)
+                Text(
+                    "📍 " + (photo.placeName?.takeIf { it.isNotBlank() && it != where }?.let { "$it · " } ?: "") + where + (photo.accuracyM?.let { " · ±${Math.round(it)} m" } ?: ""),
+                    color = IdColor.Neutral800, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        runCatching {
+                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("geo:${photo.latitude},${photo.longitude}?q=${photo.latitude},${photo.longitude}")))
+                        }
+                    }.padding(vertical = 4.dp),
+                )
+                Spacer(Modifier.height(4.dp))
             }
             IdTextField(caption, { caption = it }, "Tambah keterangan foto…", singleLine = false, minLines = 2)
             Spacer(Modifier.height(12.dp))
