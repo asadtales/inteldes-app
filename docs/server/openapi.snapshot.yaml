@@ -1105,6 +1105,120 @@ paths:
         "400": { $ref: "#/components/responses/ValidationError" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/admin/users:
+    get:
+      tags: [Superadmin]
+      summary: Semua pengguna di semua organisasi (superadmin)
+      operationId: adminListUsers
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200": { description: Pengguna., content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/AdminUser" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Superadmin]
+      summary: Daftarkan pengguna ke organisasi tim yang sudah ada (superadmin)
+      description: Membuat akun lalu mengarahkannya ke organisasi tim pilihan dengan peran admin, operator, atau pembaca. Mengembalikan tautan undangan sekali pakai. `409 not_team` bila organisasi bukan tim; `409 email_exists` bila email sudah terdaftar.
+      operationId: adminCreateUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [orgId, name, email, role], additionalProperties: false, properties: { orgId: { type: string, format: uuid }, name: { type: string, maxLength: 200 }, email: { type: string, format: email }, role: { $ref: "#/components/schemas/Role" } } } } }
+      responses:
+        "201": { description: Dibuat., content: { application/json: { schema: { type: object, required: [user, org, invite], properties: { user: { type: object, required: [id, email, name, role], properties: { id: { type: string, format: uuid }, email: { type: string }, name: { type: string }, role: { $ref: "#/components/schemas/Role" } } }, org: { type: object, required: [id], properties: { id: { type: string, format: uuid } } }, invite: { $ref: "#/components/schemas/Invite" } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/users/{id}:
+    patch:
+      tags: [Superadmin]
+      summary: Ubah nama, peran, status, atau tingkat superadmin pengguna (superadmin)
+      description: Peran hanya berlaku di organisasi tim. `409 last_admin` bila organisasi tim akan kehilangan admin terakhirnya (superadmin tidak dihitung sebagai admin tim). Akun sendiri tidak bisa diubah perannya, dinonaktifkan, atau diturunkan dari superadmin.
+      operationId: adminPatchUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, minProperties: 1, properties: { name: { type: string, maxLength: 200 }, role: { $ref: "#/components/schemas/Role" }, disabled: { type: boolean }, superadmin: { type: boolean } } } } }
+      responses:
+        "200": { description: Tersimpan., content: { application/json: { schema: { type: object, required: [id, ok], properties: { id: { type: string, format: uuid }, ok: { const: true } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/users/{id}/invite:
+    post:
+      tags: [Superadmin]
+      summary: Tautan atur ulang sandi untuk satu pengguna (superadmin)
+      operationId: adminInviteUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200": { description: Tautan., content: { application/json: { schema: { type: object, required: [invite], properties: { invite: { $ref: "#/components/schemas/Invite" } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/users/{id}/move:
+    post:
+      tags: [Superadmin]
+      summary: Arahkan pengguna ke organisasi tim lain atau ke organisasi platform (superadmin)
+      description: |
+        Memindahkan keanggotaan; arsip lama tetap milik organisasi asalnya dan perangkat aktif pengguna ikut pindah. Akun pribadi tidak bisa dipindah
+        (`409 personal_org`). Tujuan `{platform:true}` hanya untuk superadmin dan membuat organisasi platform bila belum ada. `409 last_admin` bila
+        organisasi asal kehilangan admin terakhirnya. Akun sendiri tidak bisa dipindah lewat API ini (pakai `npm run superadmin:platform`).
+      operationId: adminMoveUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { oneOf: [{ type: object, required: [orgId], additionalProperties: false, properties: { orgId: { type: string, format: uuid }, role: { $ref: "#/components/schemas/Role" } } }, { type: object, required: [platform], additionalProperties: false, properties: { platform: { const: true } } }] } } }
+      responses:
+        "200": { description: Dipindah., content: { application/json: { schema: { type: object, required: [id, org, role], properties: { id: { type: string, format: uuid }, org: { type: object, required: [id], properties: { id: { type: string, format: uuid } } }, role: { $ref: "#/components/schemas/Role" } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/platform-keys:
+    get:
+      tags: [Superadmin]
+      summary: Status kunci IntelDes (kunci AI milik organisasi penyedia) (superadmin)
+      description: "`provider` null bila belum ada organisasi tim yang ditandai penyedia kunci. Nilai kunci tidak pernah dikirim balik."
+      operationId: adminListPlatformKeys
+      security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+      responses:
+        "200": { description: Status., content: { application/json: { schema: { type: object, required: [provider, items], properties: { provider: { oneOf: [{ type: object, required: [id, name], properties: { id: { type: string, format: uuid }, name: { type: string } } }, { type: "null" }] }, items: { type: array, items: { $ref: "#/components/schemas/SecretStatus" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/admin/platform-keys/{name}:
+    put:
+      tags: [Superadmin]
+      summary: Isi atau ganti kunci IntelDes (superadmin)
+      operationId: adminPutPlatformKey
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ name: name, in: path, required: true, schema: { $ref: "#/components/schemas/SecretName" } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [value], properties: { value: { type: string, minLength: 8, maxLength: 512 } } } } } }
+      responses:
+        "204": { description: Tersimpan. }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Superadmin]
+      summary: Hapus kunci IntelDes (superadmin)
+      operationId: adminDeletePlatformKey
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ name: name, in: path, required: true, schema: { $ref: "#/components/schemas/SecretName" } }]
+      responses:
+        "204": { description: Dihapus. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
   /v1/admin/ai-models:
     get:
       tags: [Superadmin]
@@ -1723,21 +1837,21 @@ components:
             jobs: { type: object, required: [used, limit], properties: { used: { type: integer }, limit: { type: [integer, "null"] } } }
             asks: { type: object, required: [used, limit], properties: { used: { type: integer }, limit: { type: [integer, "null"] } } }
             resetsAt: { type: integer }
-        kind: { type: string, enum: [team, personal] }
+        kind: { type: string, enum: [team, personal, platform] }
         sharesKeys: { type: boolean }
         createdAt: { type: integer }
         recordingCount: { type: integer }
         disabled: { type: boolean }
         members:
           type: array
-          items: { type: object, required: [id, email, name, role, disabled], properties: { id: { type: string, format: uuid }, email: { type: string }, name: { type: string }, role: { $ref: "#/components/schemas/Role" }, disabled: { type: boolean } } }
+          items: { type: object, required: [id, email, name, role, disabled, superadmin], properties: { superadmin: { type: boolean }, id: { type: string, format: uuid }, email: { type: string }, name: { type: string }, role: { $ref: "#/components/schemas/Role" }, disabled: { type: boolean } } }
     OrgRef:
       type: object
       required: [id, name]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
-        kind: { type: string, enum: [team, personal], description: "team = arsip bersama; personal = arsip satu pengguna. Ada di /auth/me." }
+        kind: { type: string, enum: [team, personal, platform], description: "team = arsip bersama; personal = arsip satu pengguna; platform = rumah akun superadmin (tanpa arsip kerja). Ada di /auth/me." }
     Identity:
       type: object
       required: [user, org, role, deviceId]
@@ -1897,11 +2011,26 @@ components:
         name: { type: string }
         role: { $ref: "#/components/schemas/Role" }
         disabled: { type: boolean }
-    UserRow:
+    AdminUser:
       type: object
-      required: [id, email, name, role, disabled, createdAt, lastSeenAt, linkedSso, linkedGoogle, pendingInvite, current]
+      required: [id, email, name, role, org, disabled, superadmin, createdAt, lastSeenAt, pendingInvite]
       properties:
         id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        org: { type: object, required: [id, name, kind], properties: { id: { type: string, format: uuid }, name: { type: string }, kind: { type: string, enum: [team, personal, platform] } } }
+        disabled: { type: boolean }
+        superadmin: { type: boolean }
+        createdAt: { type: integer }
+        lastSeenAt: { type: [integer, "null"] }
+        pendingInvite: { type: boolean }
+    UserRow:
+      type: object
+      required: [id, email, name, role, disabled, superadmin, createdAt, lastSeenAt, linkedSso, linkedGoogle, pendingInvite, current]
+      properties:
+        id: { type: string, format: uuid }
+        superadmin: { type: boolean, description: "Pengelola platform (bukan peran organisasi)." }
         email: { type: string }
         name: { type: string }
         role: { $ref: "#/components/schemas/Role" }

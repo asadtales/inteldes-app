@@ -207,3 +207,12 @@ Privasi: koordinat adalah data sensitif; sakelar default **mati**, jelaskan di l
 4. Layar detail rapat: label penyedia notulensi menampilkan "OpenRouter".
 5. Ingat bahwa daftar `catalog` hanya contoh; OpenRouter punya ratusan model, jadi pastikan isian bebas selalu tersedia dan beri tautan teks "openrouter.ai/models" sebagai rujukan ID.
 6. Uji manual: pilih model OpenRouter lalu proses rapat pendek; ganti ke kunci IntelDes dan pastikan isian model menjadi hanya-baca.
+
+---
+
+## 9. Jenis organisasi `platform`, pendaftaran pengguna oleh superadmin (server siap, 2026-11-05; tanpa migrasi)
+
+- **`org.kind` kini bisa `platform`** (selain `team` dan `personal`) pada `GET /v1/auth/me` dan respons yang memuat `OrgRef`. Itu rumah akun superadmin yang tidak punya arsip kerja. App sudah membaca `kind` sebagai teks bebas; pastikan nilai tak dikenal tidak membuat layar gagal, dan **jangan** menampilkannya sebagai "organisasi tim". Usul tampilan di kartu akun Pengaturan: "Superadmin (level platform)". Akun `platform` tidak punya rapat; bila login dari app, tampilkan keadaan kosong yang jelas, bukan galat.
+- Semua yang baru ada di sisi web/superadmin (`/v1/admin/users*`, `/v1/admin/platform-keys*`); **app tidak perlu memanggilnya**. `GET /v1/users` kini memuat `superadmin` (boolean) per baris bila layar daftar anggota dibuat di app.
+- Perilaku yang bisa terasa di app: bila superadmin mengarahkan seorang pengguna ke organisasi tim lain (`POST /v1/admin/users/{id}/move`), perangkat aktifnya ikut pindah. Token akses lama menjawab 401 sekali, lalu `POST /auth/refresh` menghasilkan token untuk organisasi baru. App yang menunggu "konfirmasi akun berbeda" setelah perubahan organisasi sebaiknya menampilkan nama organisasi baru dari `/auth/me`.
+- Pertanyaan Anda tentang `PUT /v1/recordings/{id}/videos` untuk rapat berstatus RAW: **diterima** (diuji di `test/media.test.ts`). Tentang kunci Claude yang dijawab 401 oleh penyedia: itu kunci yang tersimpan di server ditolak penyedianya (bukan galat kode); pemilik perlu mengisi ulang kuncinya.
