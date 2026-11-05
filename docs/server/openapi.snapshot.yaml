@@ -1132,6 +1132,24 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
   /v1/admin/users/{id}:
+    delete:
+      tags: [Superadmin]
+      summary: Hapus akun secara permanen (superadmin)
+      description: |
+        Anggota tim: akun dihapus, arsip tetap milik organisasi. Akun pribadi: akun dan seluruh isi arsipnya (rapat, berkas, kunci, pengaturan) dihapus.
+        Tautan bagikan buatan akun itu dicabut. Email harus diketik ulang di `confirmEmail` (`400 confirm_mismatch`). `409 last_admin` untuk admin terakhir sebuah tim;
+        `409 self_change` untuk akun sendiri.
+      operationId: adminDeleteUser
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [confirmEmail], additionalProperties: false, properties: { confirmEmail: { type: string, maxLength: 320 } } } } } }
+      responses:
+        "200": { description: Dihapus., content: { application/json: { schema: { type: object, required: [id, kind, purged, filesRemoved], properties: { id: { type: string, format: uuid }, kind: { type: string, enum: [team, personal, platform] }, purged: { oneOf: [{ $ref: "#/components/schemas/ResetReport" }, { type: "null" }] }, filesRemoved: { type: integer } } } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
     patch:
       tags: [Superadmin]
       summary: Ubah nama, peran, status, atau tingkat superadmin pengguna (superadmin)
@@ -1167,15 +1185,14 @@ paths:
       tags: [Superadmin]
       summary: Arahkan pengguna ke organisasi tim lain atau ke organisasi platform (superadmin)
       description: |
-        Memindahkan keanggotaan; arsip lama tetap milik organisasi asalnya dan perangkat aktif pengguna ikut pindah. Akun pribadi tidak bisa dipindah
-        (`409 personal_org`). Tujuan `{platform:true}` hanya untuk superadmin dan membuat organisasi platform bila belum ada. `409 last_admin` bila
+        Memindahkan keanggotaan; arsip lama tetap milik organisasi asalnya dan perangkat aktif pengguna ikut pindah. Dari akun pribadi hanya ke organisasi tim, dan hanya bila arsip pribadinya kosong atau `discardData` membuangnya (`409 has_data`). Tujuan `{personal:true}` memisah anggota tim menjadi akun pribadi baru. Tujuan `{platform:true}` hanya untuk superadmin dan membuat organisasi platform bila belum ada. `409 last_admin` bila
         organisasi asal kehilangan admin terakhirnya. Akun sendiri tidak bisa dipindah lewat API ini (pakai `npm run superadmin:platform`).
       operationId: adminMoveUser
       security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
       parameters: [{ $ref: "#/components/parameters/IdParam" }]
       requestBody:
         required: true
-        content: { application/json: { schema: { oneOf: [{ type: object, required: [orgId], additionalProperties: false, properties: { orgId: { type: string, format: uuid }, role: { $ref: "#/components/schemas/Role" } } }, { type: object, required: [platform], additionalProperties: false, properties: { platform: { const: true } } }] } } }
+        content: { application/json: { schema: { oneOf: [{ type: object, required: [orgId], additionalProperties: false, properties: { orgId: { type: string, format: uuid }, role: { $ref: "#/components/schemas/Role" }, discardData: { type: boolean, description: "Dari akun pribadi: buang seluruh isi arsip pribadi (wajib bila ada rapat)." } } }, { type: object, required: [platform], additionalProperties: false, properties: { platform: { const: true } } }, { type: object, required: [personal], additionalProperties: false, properties: { personal: { const: true, description: "Pisahkan menjadi akun pribadi baru (arsip sendiri)." } } }] } } }
       responses:
         "200": { description: Dipindah., content: { application/json: { schema: { type: object, required: [id, org, role], properties: { id: { type: string, format: uuid }, org: { type: object, required: [id], properties: { id: { type: string, format: uuid } } }, role: { $ref: "#/components/schemas/Role" } } } } } }
         "400": { $ref: "#/components/responses/ValidationError" }
@@ -1183,6 +1200,23 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/orgs/{id}/reset-archive:
+    post:
+      tags: [Superadmin]
+      summary: Kosongkan arsip sebuah organisasi (superadmin)
+      description: |
+        Menghapus rapat beserta transkrip, notulensi, penanda, foto, video, tautan bagikan, dan berkas yang tak dipakai organisasi lain. Pengguna, kategori, template,
+        konteks, pengaturan, dan kunci tidak disentuh. HP tidak diperintah menghapus apa pun: salinan lokal tetap ada. Nama organisasi harus diketik ulang di `confirmName`.
+      operationId: adminResetArchive
+      security: [{ bearerAuth: [] }, { cookieAuth: [], csrfHeader: [] }]
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [confirmName], additionalProperties: false, properties: { confirmName: { type: string, maxLength: 200 } } } } } }
+      responses:
+        "200": { description: Hasil., content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/ResetReport" }, { type: object, required: [filesRemoved], properties: { filesRemoved: { type: integer } } }] } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /v1/admin/platform-keys:
     get:
       tags: [Superadmin]
@@ -2011,6 +2045,10 @@ components:
         name: { type: string }
         role: { $ref: "#/components/schemas/Role" }
         disabled: { type: boolean }
+    ResetReport:
+      type: object
+      required: [recordings, blobs, bytes, shares]
+      properties: { recordings: { type: integer }, blobs: { type: integer }, bytes: { type: integer }, shares: { type: integer } }
     AdminUser:
       type: object
       required: [id, email, name, role, org, disabled, superadmin, createdAt, lastSeenAt, pendingInvite]

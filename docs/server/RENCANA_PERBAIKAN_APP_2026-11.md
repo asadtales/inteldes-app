@@ -216,3 +216,14 @@ Privasi: koordinat adalah data sensitif; sakelar default **mati**, jelaskan di l
 - Semua yang baru ada di sisi web/superadmin (`/v1/admin/users*`, `/v1/admin/platform-keys*`); **app tidak perlu memanggilnya**. `GET /v1/users` kini memuat `superadmin` (boolean) per baris bila layar daftar anggota dibuat di app.
 - Perilaku yang bisa terasa di app: bila superadmin mengarahkan seorang pengguna ke organisasi tim lain (`POST /v1/admin/users/{id}/move`), perangkat aktifnya ikut pindah. Token akses lama menjawab 401 sekali, lalu `POST /auth/refresh` menghasilkan token untuk organisasi baru. App yang menunggu "konfirmasi akun berbeda" setelah perubahan organisasi sebaiknya menampilkan nama organisasi baru dari `/auth/me`.
 - Pertanyaan Anda tentang `PUT /v1/recordings/{id}/videos` untuk rapat berstatus RAW: **diterima** (diuji di `test/media.test.ts`). Tentang kunci Claude yang dijawab 401 oleh penyedia: itu kunci yang tersimpan di server ditolak penyedianya (bukan galat kode); pemilik perlu mengisi ulang kuncinya.
+
+---
+
+## 10. Penataan ulang pengguna dan reset data server (2026-11-05): yang perlu diperhatikan app
+
+Yang terjadi di server produksi atas permintaan pemilik: struktur akun ditata ulang dan arsip server dikosongkan sampai struktur dan sinkron rapi.
+
+- Struktur sekarang: **Desa tales** (tim; admin `desatales.kdr@gmail.com`, operator `gimanfathur@gmail.com`), **ghenergi** (akun pribadi `ghenergi88@gmail.com`), **IntelDes Platform** (`asadtales@gmail.com`, superadmin level platform, tanpa arsip kerja).
+- Arsip Desa tales dikosongkan (65 rapat, 82 berkas). **HP tidak diperintah menghapus apa pun**: server tidak mengirim penghapusan lewat `/v1/sync/changes`, dan salinan lokal di HP utuh. Perangkat tiap pengguna ikut pindah organisasi tanpa login ulang (token lama menjawab 401 sekali lalu disegarkan).
+- **Yang perlu dipastikan di app**: rekaman yang di HP berstatus "sudah tersinkron" (hash dan `serverVersion` tersimpan di `WebState`) tetapi di server sudah **tidak ada** harus dikirim ulang. Sekarang `pushParts` hanya mengirim bagian yang hash-nya berubah (`dirty`), sehingga rekaman lama tidak akan terunggah ke organisasi tujuan sampai berubah. Usul: (1) saat organisasi berubah (`otherOrg` dikonfirmasi) atau `GET /v1/recordings/{id}` menjawab 404 untuk rekaman yang dianggap tersinkron, anggap semua bagian kotor (`everything = true`) dan kirim ulang seluruhnya (server menggabung per id); (2) tambahkan tombol **Kirim ulang semua ke server** di Pengaturan > Akun & sinkron web; (3) tampilkan nama organisasi tujuan saat konfirmasi akun berbeda.
+- Akun `asadtales` sekarang di organisasi platform (tanpa arsip kerja). Bila HP-nya masih sinkron, rapatnya akan masuk ke organisasi platform yang tidak punya layar arsip di web; sebaiknya app menampilkan keadaan kosong yang jelas untuk `org.kind == "platform"` dan menawarkan "Jangan sinkronkan dari akun ini".
