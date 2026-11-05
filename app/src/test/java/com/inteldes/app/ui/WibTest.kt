@@ -5,6 +5,7 @@ import com.inteldes.app.ui.util.formatRelativeDay
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.TimeZone
 
@@ -27,6 +28,16 @@ class WibTest {
         val lastMinuteOfTheDay = 1_793_811_540_000L    // 2026-11-04 16:59 UTC = 23.59 WIB
         assertEquals(Wib.dayNumber(utc0400), Wib.dayNumber(lastMinuteOfTheDay))
         assertNotEquals(Wib.dayNumber(utc0400), Wib.dayNumber(lastMinuteOfTheDay + 60_000))     // 17:00 UTC = 00.00 WIB of the next day
+    }
+
+    @Test
+    fun agoIsAlwaysIndonesian() {
+        val now = 1_793_811_600_000L
+        assertEquals("baru saja", Wib.ago(now - 20_000, now))
+        assertEquals("5 menit lalu", Wib.ago(now - 5 * 60_000, now))
+        assertEquals("14 jam lalu", Wib.ago(now - 14 * 3_600_000L, now))
+        assertEquals("3 hari lalu", Wib.ago(now - 3 * 86_400_000L, now))
+        assertTrue(Wib.ago(now - 15 * 86_400_000L, now).startsWith("21 "))
     }
 
     @Test

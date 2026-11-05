@@ -95,6 +95,10 @@ interface VideoDao {
     @Query("DELETE FROM videos WHERE deletedAt IS NOT NULL AND syncedSha IS NULL")
     suspend fun purgeNeverSent()
 
+    /** The server lost its copy: forget what was sent so the videos go out again (all recordings when [recordingId] is null). */
+    @Query("UPDATE videos SET syncedSha = NULL, syncError = NULL WHERE (:recordingId IS NULL OR recordingId = :recordingId)")
+    suspend fun resetSync(recordingId: String?)
+
     @Query("UPDATE videos SET syncedSha = :sha, syncError = NULL WHERE id = :id")
     suspend fun markSynced(id: Long, sha: String)
 

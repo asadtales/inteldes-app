@@ -197,6 +197,8 @@ class RoomWebLocal(context: Context, private val db: IntelDesDatabase) : WebLoca
         if (v.deletedAt != null) db.videoDao().delete(rowId) else db.videoDao().markSynced(rowId, sha256)
     }
 
+    override suspend fun resendVideos(recordingId: String?) { db.videoDao().resetSync(recordingId) }
+
     override suspend fun videoFailed(rowId: Long, message: String) { db.videoDao().markFailed(rowId, message.take(300)) }
 
     override suspend fun categories(): List<LocalCategory> = db.categoryDao().list().map { LocalCategory(it.id, it.label, it.orderIndex) }

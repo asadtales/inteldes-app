@@ -47,6 +47,13 @@ class WebSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
         return mutex.withLock {
             try {
                 val org = account.currentOrg()
+                if (org.kind == "platform") {
+                    // The superadmin's home has no archive: nothing to send or receive, and it is not an organisation to confirm.
+                    store.needsOrgConfirm = null
+                    store.needsOrgKind = null
+                    store.lastSummary = "Akun superadmin (level platform) tidak punya arsip kerja. Masuk dengan akun anggota atau akun pribadi untuk sinkron."
+                    return@withLock Result.success()
+                }
                 val known = store.orgId
                 if (known == null) {
                     store.orgId = org.id
@@ -76,7 +83,9 @@ class WebSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                     store.lastPulled = report.pulled
                 }
                 store.lastFailed = report.failed
-                store.lastSummary = if (report.failed > 0) "${report.failed} gagal: ${report.firstError}" else "Selesai."
+                store.lastSummary = if (report.failed > 0) "${report.failed} gagal: ${report.firstError}"
+                else if (report.resent > 0) "Selesai. ${report.resent} rekaman dikirim ulang karena tidak ada di server."
+                else "Selesai."
                 if (report.failed > 0 && runAttemptCount < MAX_ATTEMPTS - 1) Result.retry() else Result.success()
             } catch (e: CancellationException) {
                 store.progress = null

@@ -200,6 +200,15 @@ class SettingsViewModel(
         com.inteldes.app.data.work.WebSyncWorker.enqueue(appContext)
     }
 
+    /** The server lost its data: forget everything agreed with it and send the whole archive again. Nothing on the phone changes. */
+    fun resendEverything() {
+        viewModelScope.launch {
+            webSync.resetForResend()
+            webSync.lastSummary = "Mengirim ulang semua rekaman ke server…"
+            com.inteldes.app.data.work.WebSyncWorker.enqueue(appContext)
+        }
+    }
+
     fun declineOrgSwitch() {
         webSync.needsOrgConfirm = null
         webSync.needsOrgKind = null

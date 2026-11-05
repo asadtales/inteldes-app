@@ -29,6 +29,9 @@ interface WebRemote {
     /** Same for short videos. A server that does not know videos (an old one) just refuses. */
     suspend fun putVideos(id: String, videos: List<WebVideo>) {}
     suspend fun deleteRecording(id: String)
+
+    /** Ids of every live recording the server holds for this organisation; null when this remote cannot list them. */
+    suspend fun listRecordingIds(): Set<String>? = null
     suspend fun listCategories(): List<WebCategory>
     suspend fun putCategory(id: String, label: String, orderIndex: Int, ifMatch: Int): WebCategory
     suspend fun blobExists(sha256: String): Boolean
@@ -69,6 +72,9 @@ interface WebLocal {
     suspend fun pendingVideos(): List<LocalVideo> = emptyList()
     suspend fun videoSynced(rowId: Long, sha256: String) {}
     suspend fun videoFailed(rowId: Long, message: String) {}
+
+    /** The server lost its copy of the videos: send them again (every recording when [recordingId] is null). */
+    suspend fun resendVideos(recordingId: String?) {}
 
     suspend fun recordingIds(): List<String>
     suspend fun exists(id: String): Boolean
@@ -131,6 +137,9 @@ interface WebStateStore {
     fun retryPulls(): Set<String>
     fun addRetry(id: String)
     fun removeRetry(id: String)
+
+    /** Forget what was agreed with the server about templates and contexts (the server lost them). */
+    fun forgetLibrary() {}
 }
 
 data class WebSyncReport(
@@ -138,6 +147,8 @@ data class WebSyncReport(
     var pulled: Int = 0,
     var deletedOnServer: Int = 0,
     var ignoredServerDeletes: Int = 0,
+    /** Recordings the server no longer had (wiped), sent again from this phone. */
+    var resent: Int = 0,
     var failed: Int = 0,
     var firstError: String? = null,
 )
@@ -173,6 +184,7 @@ class WebSyncEngine(
         progress("Kategori…")
         guarded(report, "kategori") { syncCategories() }
         if (!pullOnly) guarded(report, "hapus") { flushDeletes(report) }
+        if (!pullOnly) guarded(report, "cek server") { forgetWhatServerLost(report) }
         progress("Mengambil perubahan dari server…")
         pull(report)
         val ids = if (pullOnly) emptyList() else local.recordingIds().filter { it !in skipped }
@@ -183,6 +195,26 @@ class WebSyncEngine(
         guarded(report, "audio") { retryMissingAudio() }
         if (!pullOnly) { progress("Mengirim video…"); pushVideos(report) }
         return report
+    }
+
+    /**
+     * The server may have lost its data (wiped, restored from an old backup). A recording this phone believes is synced
+     * but the server does not list is treated as new to the server again, so the next push refills it. Nothing is
+     * deleted anywhere; one the web removed on purpose answers "deleted" and is left alone like before.
+     * Skipped when the list cannot be read (never purge on a doubt).
+     */
+    private suspend fun forgetWhatServerLost(report: WebSyncReport) {
+        val onServer = remote.listRecordingIds() ?: return
+        val pending = store.pendingDeletes()
+        val lost = store.all().filter { it.recordingId !in onServer && it.recordingId !in pending && it.recordingId !in skipped }
+        if (lost.isEmpty()) return
+        // Everything gone: the templates and contexts the server had were lost too, so forget what was agreed about them.
+        if (onServer.isEmpty() && lost.size == store.all().size) store.forgetLibrary()
+        for (s in lost) {
+            store.remove(s.recordingId)
+            local.resendVideos(s.recordingId)
+            report.resent++
+        }
     }
 
     // ───────────────────────── short videos (phone to server only) ─────────────────────────

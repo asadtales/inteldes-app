@@ -9,7 +9,7 @@ import com.inteldes.app.data.db.WebSyncStateEntity
  * deletes in a small preferences file. The preferences file is excluded from backup and device transfer: a
  * restored cursor would make a new phone skip everything the server already has.
  */
-class WebSyncStore(context: Context, db: IntelDesDatabase) : WebStateStore {
+class WebSyncStore(context: Context, private val db: IntelDesDatabase) : WebStateStore {
     private val dao = db.webSyncDao()
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -71,6 +71,21 @@ class WebSyncStore(context: Context, db: IntelDesDatabase) : WebStateStore {
     suspend fun switchOrg(newOrgId: String, pullOnly: Boolean = false) {
         dao.clear()
         prefs.edit().remove(K_LIBRARY).remove(K_CURSOR).remove(K_RETRY).remove(K_DELETES).putString(K_ORG, newOrgId).putBoolean(K_PULL_ONLY, pullOnly).remove(K_CONFIRM).remove(K_CONFIRM_KIND).commit()
+    }
+
+    /** Drops what was agreed about templates and contexts so the next run sends them again. */
+    override fun forgetLibrary() {
+        prefs.edit().remove(K_LIBRARY).apply()
+    }
+
+    /**
+     * "Kirim ulang semua": the server lost its data, so forget everything agreed with it and let the next run send the
+     * whole archive again. The phone's recordings are untouched; pending deletes are kept (they are still owed).
+     */
+    suspend fun resetForResend() {
+        dao.clear()
+        db.videoDao().resetSync(null)
+        prefs.edit().remove(K_LIBRARY).remove(K_CURSOR).remove(K_RETRY).commit()
     }
 
     /** Forget the cursor and retry list (e.g. after logging into another account) so the next run starts from the top. */

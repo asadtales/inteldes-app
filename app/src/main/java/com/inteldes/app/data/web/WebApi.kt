@@ -37,6 +37,19 @@ class WebApi(
     override suspend fun changes(since: Long): WebChangesPage =
         gson.fromJson(text(get("/v1/sync/changes?since=$since&limit=200")), WebChangesPage::class.java)
 
+    override suspend fun listRecordingIds(): Set<String> {
+        val ids = HashSet<String>()
+        var cursor: String? = null
+        repeat(MAX_LIST_PAGES) {
+            val q = "limit=100" + (cursor?.let { "&cursor=" + java.net.URLEncoder.encode(it, "UTF-8") } ?: "")
+            val json = com.google.gson.JsonParser.parseString(text(get("/v1/recordings?$q"))).asJsonObject
+            json["items"]?.takeIf { it.isJsonArray }?.asJsonArray?.forEach { e -> e.asJsonObject["id"]?.asString?.let(ids::add) }
+            cursor = json["nextCursor"]?.takeIf { !it.isJsonNull }?.asString
+            if (cursor == null) return ids
+        }
+        throw IOException("Daftar rekaman di server terlalu panjang untuk dibaca.")
+    }
+
     override suspend fun getAggregate(id: String): WebAggregate? =
         try {
             val json = com.google.gson.JsonParser.parseString(text(get("/v1/recordings/$id"))).asJsonObject
@@ -347,6 +360,7 @@ class WebApi(
     private fun b64(s: String) = java.util.Base64.getEncoder().encodeToString(s.toByteArray())
 
     companion object {
+        private const val MAX_LIST_PAGES = 1000
         private val JSON = "application/json; charset=utf-8".toMediaType()
     }
 }

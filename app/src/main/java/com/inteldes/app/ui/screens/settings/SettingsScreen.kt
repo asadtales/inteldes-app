@@ -125,6 +125,7 @@ fun SettingsScreen(
                 "Akun & sinkron web",
                 when {
                     me == null -> "Belum masuk · mode lokal"
+                    me.isPlatform -> "${me.name} · Superadmin (level platform) · tanpa arsip kerja"
                     webState.otherOrg != null -> "Perlu konfirmasi: akun berbeda dari yang terakhir dipakai"
                     else -> "${me.name} · ${if (me.isPersonal) "Akun pribadi" else me.orgName} · " +
                         if (!webState.enabled) "sinkron web mati" else if (webState.pullOnly) "hanya menerima dari web" else "sinkron web aktif"
@@ -134,7 +135,7 @@ fun SettingsScreen(
                 AccountSection(
                     serverSession, webState, onLogin = onLogin, onApprove = onApproveWebLogin, onLogout = vm::logoutServer,
                     onWebSync = vm::setWebSync, onWebSyncNow = vm::webSyncNow, onConfirmOrg = vm::confirmOrgSwitch,
-                    onDeclineOrg = vm::declineOrgSwitch, onAllowPush = vm::allowPush,
+                    onDeclineOrg = vm::declineOrgSwitch, onAllowPush = vm::allowPush, onResend = vm::resendEverything,
                 )
                 if (webState.enabled) SyncChoiceRow(choice, "web", onClick = { pickingSync = true })
             }
@@ -627,6 +628,7 @@ private fun AccountSection(
     onConfirmOrg: (Boolean) -> Unit,
     onDeclineOrg: () -> Unit,
     onAllowPush: () -> Unit,
+    onResend: () -> Unit,
 ) {
     var confirmLogout by remember { mutableStateOf(false) }
     var confirmEnable by remember { mutableStateOf(false) }
@@ -641,9 +643,9 @@ private fun AccountSection(
             DriveButton("MASUK KE SERVER", filled = true, onClick = onLogin)
         } else {
             Text("Masuk sebagai", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
-            Text("${session.name} · ${if (session.isPersonal) "Akun pribadi" else session.roleLabel}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text("${session.name} · ${if (session.isPlatform) "Superadmin (level platform)" else if (session.isPersonal) "Akun pribadi" else session.roleLabel}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Text(
-                if (session.isPersonal) "Arsip terpisah, hanya milik Anda" else session.orgName,
+                if (session.isPlatform) "Tanpa arsip kerja" else if (session.isPersonal) "Arsip terpisah, hanya milik Anda" else session.orgName,
                 color = IdColor.Neutral700, fontSize = 12.sp,
             )
             if (session.superadmin) Text("Superadmin platform (kelola di web)", color = IdColor.Neutral600, fontSize = 11.5.sp)
@@ -651,7 +653,14 @@ private fun AccountSection(
             Spacer(Modifier.height(10.dp))
             DriveButton("MASUK WEB DENGAN QR", filled = true, onClick = onApprove)
             Spacer(Modifier.height(14.dp))
-            WebSyncCard(web, canWrite = session.role != "pembaca", onEnable = { confirmEnable = true }, onDisable = { onWebSync(false) }, onNow = onWebSyncNow, onConfirmOrg = onConfirmOrg, onDeclineOrg = onDeclineOrg, onAllowPush = onAllowPush)
+            if (session.isPlatform) {
+                Text(
+                    "Akun level platform tidak punya rapat atau arsip kerja, jadi tidak ada yang dikirim atau diambil. " +
+                        "Untuk menyinkronkan rekaman, keluar lalu masuk dengan akun anggota organisasi atau akun pribadi.",
+                    color = IdColor.Neutral700, fontSize = 12.sp, lineHeight = 17.sp,
+                    modifier = Modifier.fillMaxWidth().border(1.dp, IdColor.Neutral300).padding(12.dp),
+                )
+            } else WebSyncCard(web, canWrite = session.role != "pembaca", onResend = onResend, onEnable = { confirmEnable = true }, onDisable = { onWebSync(false) }, onNow = onWebSyncNow, onConfirmOrg = onConfirmOrg, onDeclineOrg = onDeclineOrg, onAllowPush = onAllowPush)
             Spacer(Modifier.height(14.dp))
             DriveButton("KELUAR DARI SERVER", filled = false, onClick = { confirmLogout = true })
         }
@@ -695,7 +704,9 @@ private fun WebSyncCard(
     onConfirmOrg: (Boolean) -> Unit,
     onDeclineOrg: () -> Unit,
     onAllowPush: () -> Unit,
+    onResend: () -> Unit,
 ) {
+    var confirmResend by remember { mutableStateOf(false) }
     var confirmPush by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().border(1.dp, IdColor.Neutral300).padding(12.dp)) {
         Text("SINKRON KE WEB", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.8.sp)
@@ -712,7 +723,7 @@ private fun WebSyncCard(
             Text(web.progress, color = IdColor.Accent, fontSize = 12.sp)
         } else if (web.enabled) {
             val whenText = if (web.lastRunAt > 0) {
-                android.text.format.DateUtils.getRelativeTimeSpanString(web.lastRunAt, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString()
+                com.inteldes.app.ui.util.Wib.ago(web.lastRunAt)
             } else "belum pernah"
             Text("Terakhir: $whenText", color = IdColor.Neutral700, fontSize = 12.sp)
             Text(
@@ -761,10 +772,30 @@ private fun WebSyncCard(
                 DriveButton("KIRIM REKAMAN HP JUGA…", filled = false, onClick = { confirmPush = true })
                 Spacer(Modifier.height(8.dp))
             }
+            if (!web.pullOnly && web.otherOrg == null) {
+                DriveButton("KIRIM ULANG SEMUA KE SERVER…", filled = false, onClick = { confirmResend = true })
+                Spacer(Modifier.height(8.dp))
+            }
             DriveButton("MATIKAN SINKRON WEB", filled = false, onClick = onDisable)
         } else {
             DriveButton("AKTIFKAN SINKRON KE WEB", filled = true, onClick = onEnable)
         }
+    }
+    if (confirmResend) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmResend = false },
+            title = { Text("Kirim ulang semua ke server?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Pakai ini bila data di server terhapus atau kosong. Semua rekaman, foto, video, penanda, template, dan konteks di HP ini " +
+                        "dikirim lagi seolah baru. Isi HP tidak berubah dan tidak ada yang dihapus. Rekaman yang sengaja dihapus di web tidak dihidupkan kembali. " +
+                        "Aplikasi juga memeriksanya sendiri tiap sinkron, jadi tombol ini hanya perlu bila sinkron biasa tidak mengisi ulang.",
+                    fontSize = 13.sp, color = IdColor.Neutral700, lineHeight = 18.sp,
+                )
+            },
+            confirmButton = { Text("YA, KIRIM ULANG", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { confirmResend = false; onResend() }.padding(10.dp)) },
+            dismissButton = { Text("Batal", color = IdColor.Neutral700, modifier = Modifier.clickable { confirmResend = false }.padding(10.dp)) },
+        )
     }
     if (confirmPush) {
         androidx.compose.material3.AlertDialog(

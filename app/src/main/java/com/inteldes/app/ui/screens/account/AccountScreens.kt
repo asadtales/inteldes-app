@@ -159,17 +159,27 @@ fun LoginScreen(
 
 @Composable
 private fun FormField(value: String, onChange: (String) -> Unit, type: KeyboardType, secret: Boolean, placeholder: String) {
+    var visible by remember { mutableStateOf(false) }
     BasicTextField(
         value = value,
         onValueChange = onChange,
         singleLine = true,
         textStyle = TextStyle(fontSize = 15.sp, color = IdColor.Text),
         keyboardOptions = KeyboardOptions(keyboardType = type),
-        visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+        visualTransformation = if (secret && !visible) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         decorationBox = { inner ->
-            Box(modifier = Modifier.fillMaxWidth().background(IdColor.Neutral100).padding(14.dp)) {
-                if (value.isEmpty()) Text(placeholder, color = IdColor.Neutral600, fontSize = 15.sp)
-                inner()
+            Row(modifier = Modifier.fillMaxWidth().background(IdColor.Neutral100).padding(start = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.weight(1f).padding(vertical = 14.dp)) {
+                    if (value.isEmpty()) Text(placeholder, color = IdColor.Neutral600, fontSize = 15.sp)
+                    inner()
+                }
+                if (secret) {
+                    Text(
+                        if (visible) "SEMBUNYIKAN" else "LIHAT",
+                        color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 11.sp,
+                        modifier = Modifier.clickable { visible = !visible }.padding(horizontal = 14.dp, vertical = 14.dp),
+                    )
+                }
             }
         },
     )

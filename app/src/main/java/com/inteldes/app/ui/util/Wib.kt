@@ -20,6 +20,19 @@ object Wib {
 
     fun format(pattern: String, epochMillis: Long): String = formatter(pattern).format(Date(epochMillis))
 
+    /** "baru saja", "5 menit lalu", "14 jam lalu", "3 hari lalu", else the WIB date (Indonesian, whatever the phone language). */
+    fun ago(epochMillis: Long, now: Long = System.currentTimeMillis()): String {
+        val diff = now - epochMillis
+        val minutes = diff / 60_000
+        return when {
+            diff < 60_000 -> "baru saja"
+            minutes < 60 -> "$minutes menit lalu"
+            minutes < 60 * 24 -> "${minutes / 60} jam lalu"
+            minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)} hari lalu"
+            else -> format("d MMM yyyy", epochMillis)
+        }
+    }
+
     /** The calendar day (in WIB) of [epochMillis] as a whole number: equal numbers are the same WIB day. */
     fun dayNumber(epochMillis: Long): Long = Math.floorDiv(epochMillis + OFFSET_MS, DAY_MS)
 }

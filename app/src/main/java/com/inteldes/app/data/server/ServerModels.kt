@@ -84,6 +84,9 @@ data class Session(
 ) {
     val isPersonal: Boolean get() = orgKind == "personal"
 
+    /** The home of a superadmin: it has no working archive of its own (nothing to sync). */
+    val isPlatform: Boolean get() = orgKind == "platform"
+
     val roleLabel: String
         get() = when (role) {
             "admin" -> "Admin"

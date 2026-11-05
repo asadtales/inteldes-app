@@ -135,6 +135,12 @@ private class FakeServer : WebRemote {
         touch(id, "delete")
     }
 
+    var listFails = false
+    override suspend fun listRecordingIds(): Set<String> {
+        if (listFails) throw IOException("offline")
+        return recs.filter { it.value.meta.deletedAt == null }.keys.toSet()
+    }
+
     override suspend fun listCategories() = categories.toList()
     override suspend fun putCategory(id: String, label: String, orderIndex: Int, ifMatch: Int): WebCategory {
         calls += "putCategory"
@@ -199,6 +205,8 @@ private class FakeLocal(private val dir: File) : WebLocal {
     override suspend fun pendingVideos() = pending.filter { it.rowId !in synced && it.rowId !in failed }
     override suspend fun videoSynced(rowId: Long, sha256: String) { synced[rowId] = sha256 }
     override suspend fun videoFailed(rowId: Long, message: String) { failed[rowId] = message }
+    val resentVideos = mutableListOf<String?>()
+    override suspend fun resendVideos(recordingId: String?) { resentVideos += recordingId; synced.clear() }
 
     class Rec(var input: WebRecordingInput, var transcript: List<WebSegment> = emptyList(), var sections: List<WebSection> = emptyList(),
               var marks: List<WebMark> = emptyList(), var chat: List<WebChat> = emptyList(), var audio: File? = null, var working: Boolean = false,
@@ -556,6 +564,47 @@ class WebSyncEngineTest {
         sync()
         assertEquals("HP kaya", server.recs.getValue("r2").meta.title)
         assertEquals(1, server.recs.getValue("r2").sections.size)
+    }
+
+    @Test
+    fun whenTheServerLostEverythingThePhoneSendsItAllAgain() {
+        phone.create("r1", "Satu", status = "DONE", audio = "A", transcript = true, notes = true)
+        phone.create("r2", "Dua", status = "DONE", audio = "B", transcript = true, notes = true)
+        sync()
+        assertEquals(2, server.recs.size)
+
+        server.recs.clear()                                   // the server was wiped
+        server.blobs.clear()
+        val report = sync()
+
+        assertEquals(2, report.resent)
+        assertEquals(setOf("r1", "r2"), server.recs.keys)
+        assertEquals("Satu", server.recs.getValue("r1").meta.title)
+        assertEquals(2, phone.recs.size)                      // the phone lost nothing
+        assertEquals(listOf<String?>("r1", "r2"), phone.resentVideos)
+        assertEquals(0, sync().resent)                        // and the next run is quiet again
+    }
+
+    @Test
+    fun aRecordingTheWebDeletedOnPurposeIsNotBroughtBackWhenOthersAreMissing() {
+        phone.create("r1", "Dihapus di web", status = "DONE", audio = "A", transcript = true, notes = true)
+        phone.create("r2", "Masih ada", status = "DONE", audio = "B", transcript = true, notes = true)
+        sync()
+        runBlocking { server.deleteRecording("r1") }          // soft delete: no longer listed, but the server still answers "deleted"
+        val report = sync()
+        assertTrue(server.recs.getValue("r1").meta.deletedAt != null)    // still deleted on the server
+        assertNotNull(phone.recs["r1"])                                   // and still on the phone
+        assertTrue(report.ignoredServerDeletes >= 1)
+    }
+
+    @Test
+    fun anUnreadableServerListNeverMakesThePhoneForgetAnything() {
+        phone.create("r1", "Satu", status = "DONE", audio = "A", transcript = true, notes = true)
+        sync()
+        server.listFails = true
+        val report = sync()
+        assertEquals(0, report.resent)
+        assertNotNull(store.states["r1"])
     }
 
     @Test

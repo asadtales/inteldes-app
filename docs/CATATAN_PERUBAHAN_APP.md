@@ -138,3 +138,17 @@ Hal yang tetap belum terbukti: semuanya masih dengan server palsu atau tes unit;
 **Diuji di HP asli (1 Nov 2026):** migrasi 7→9 (3 tes instrumentasi lolos), potong 3 rentang pada rekaman WebM (hasil 44,98 detik, terdecode penuh, penanda 43→23), draf potong (simpan dan lanjutkan), deteksi hening pada audio WebM, ekspor PDF (dibaca sebagai gambar), ubah nama penanda dan bendera di transkrip, kartu "Kunci AI di server" dengan server produksi, dialog pilihan "Diproses di", daftar rekaman yang ikut sinkron.
 
 **Belum diuji di HP:** membuat dan mencabut tautan bagikan serta proses lewat server dengan server asli (HP masih mode hanya menerima), login Google/SSO (server belum menyalakan `APP_LOGIN`), hapus sumber dari konteks, potong m4a dan mp3/wav lewat server, deteksi hening pada rekaman dengan jeda nyata.
+
+## 8. Kirim ulang setelah data server terhapus, login, akun platform (5 Nov 2026)
+
+Mengacu ke `server/PANDUAN_KIRIM_ULANG_SINKRON_HP.md` dan bagian 9 `server/RENCANA_PERBAIKAN_APP_2026-11.md`.
+
+- **Deteksi otomatis.** Di awal tiap sinkron (kecuali mode "hanya menerima") app membaca seluruh daftar rekaman server lewat `GET /v1/recordings` (kursor, 100 per halaman). Rekaman yang di HP tercatat terkirim tetapi tidak ada di daftar dianggap baru bagi server: catatan sinkronnya dibuang dan status kirim videonya direset, sehingga dikirim lagi (audio, foto, video, penanda, obrolan). Bila server kosong total, tanda kesepakatan template dan konteks ikut dilupakan. Rekaman yang dihapus di web dengan sengaja dijawab server "terhapus" dan tetap tidak dihidupkan. Bila daftar gagal dibaca (offline, galat) tidak ada yang dilupakan. Ringkasan sinkron menyebut "N rekaman dikirim ulang karena tidak ada di server".
+- **Tombol manual** "KIRIM ULANG SEMUA KE SERVER…" (Pengaturan > Akun & sinkron, dengan konfirmasi): mengosongkan catatan sinkron, tanda template/konteks, kursor, daftar coba-ulang, dan status kirim video, lalu menjalankan sinkron. Hapus yang tertunda dipertahankan. Isi HP tidak berubah.
+- **Akun `platform`**: tidak ada sinkron; kartu menampilkan "Superadmin (level platform)" dan "Tanpa arsip kerja" dengan penjelasan. Nilai `kind` tak dikenal tidak merusak layar.
+- **Login**: kolom sandi punya tombol LIHAT/SEMBUNYIKAN.
+- **Waktu relatif** di kartu sinkron kini selalu bahasa Indonesia ("14 jam lalu", `Wib.ago`).
+- Konfirmasi ganti organisasi sudah menampilkan nama organisasi tujuan.
+- Tes: 166 lulus (baru: pulih setelah server dikosongkan, hapus-di-web tidak hidup lagi, daftar tak terbaca tidak melupakan, format waktu). Belum diuji dengan server asli di HP.
+
+**Untuk tim web:** app memakai `GET /v1/recordings` tanpa filter dan mengandalkan rekaman yang di-soft-delete tidak muncul di daftar; `PUT` untuk id yang sudah di-soft-delete harus tetap dijawab terhapus (409), bukan membuat ulang.
