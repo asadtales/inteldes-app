@@ -39,7 +39,21 @@ private const val KEY_RECORDING_ID = "recordingId"
 private const val KEY_STEP = "step"
 private const val KEY_RANGE_START = "rangeStartSec"
 private const val KEY_RANGE_END = "rangeEndSec"
+private const val KEY_MODE = "mode"
 const val KEY_ERROR = "error"
+
+/**
+ * How far one run goes. The user can stop after the transcript (to fix names and wording first) and later
+ * write the notulensi from the corrected transcript, without sending the audio again.
+ */
+enum class ProcessMode {
+    /** Transcribe, then write the notulensi (the original behaviour). */
+    FULL,
+    /** Transcribe and stop: the recording stays RAW with its transcript, ready to be edited. */
+    TRANSCRIBE_ONLY,
+    /** Write the notulensi from the transcript already stored (edited or not); the audio is not touched. */
+    NOTES_ONLY,
+}
 
 /**
  * Real background pipeline: cloud transcription (with diarization) → AI notulensi
@@ -71,6 +85,7 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
         val recording = repo.getRecording(recordingId) ?: return Result.failure()
         val rangeStartSec = inputData.getInt(KEY_RANGE_START, -1).takeIf { it >= 0 }
         val rangeEndSec = inputData.getInt(KEY_RANGE_END, -1).takeIf { it >= 0 }
+        val mode = ProcessMode.entries.firstOrNull { it.name == inputData.getString(KEY_MODE) } ?: ProcessMode.FULL
         repo.markWorking(recordingId)
 
         // Promotes this work to a real foreground service (with an ongoing notification) for
@@ -83,7 +98,7 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
             try {
                 setProgress(workDataOf(KEY_STEP to ProcessingStep.PREP.name))
                 // A conversation imported from text has no audio: its transcript is already stored.
-                val audioFile: File? = recording.audioFilePath?.let { path ->
+                val audioFile: File? = recording.audioFilePath?.takeIf { mode != ProcessMode.NOTES_ONLY }?.let { path ->
                     File(path).also { if (!it.exists()) throw ApiException("Berkas audio tidak ditemukan di perangkat.") }
                 }
                 val storedTranscript = if (audioFile == null) repo.observeTranscript(recordingId).first() else emptyList()
@@ -91,6 +106,7 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
 
                 setProgress(workDataOf(KEY_STEP to ProcessingStep.TRANSCRIBE.name))
                 val transcriptResult: TranscriptResult = if (audioFile == null) {
+                    if (mode == ProcessMode.NOTES_ONLY) ensureNotEmpty(storedTranscript)
                     TranscriptResult(storedTranscript.map { it.speaker }.toSet().size, storedTranscript)
                 } else if (recording.engine == WhisperEngine.ON_DEVICE) {
                     OnDeviceWhisperClient(app).transcribe(audioFile, rangeStartSec = rangeStartSec, rangeEndSec = rangeEndSec)
@@ -101,7 +117,15 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
                 }
 
                 setProgress(workDataOf(KEY_STEP to ProcessingStep.DIARIZE.name))
-                repo.saveTranscript(recordingId, transcriptResult.speakerCount, transcriptResult.segments)
+                // A stored transcript may have been edited by the user: only a fresh transcription is written over it.
+                if (audioFile != null) repo.saveTranscript(recordingId, transcriptResult.speakerCount, transcriptResult.segments)
+
+                if (mode == ProcessMode.TRANSCRIBE_ONLY) {
+                    // Stop here: back to RAW (no error), transcript saved; the notulensi waits for the user.
+                    repo.markTranscribed(recordingId)
+                    SyncWorker.enqueue(applicationContext)
+                    return@withLock Result.success()
+                }
 
                 setProgress(workDataOf(KEY_STEP to ProcessingStep.SUMMARIZE.name))
                 val current = app.settingsStore.settings.first()
@@ -123,7 +147,7 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
                 val resolvedProvider = generator.resolve(current.provider, recording.durationSec)
                 repo.saveNotulensi(recordingId, resolvedProvider, notulensi, current.density)
 
-                if (!current.keepOriginalAudio) audioFile?.delete()
+                if (!current.keepOriginalAudio) recording.audioFilePath?.let { File(it).delete() }
 
                 SyncWorker.enqueue(applicationContext)
                 Result.success()
@@ -201,13 +225,21 @@ class ProcessRecordingWorker(appContext: Context, params: WorkerParameters) : Co
         // WorkManager itself schedules concurrently.
         private val processingMutex = Mutex()
 
-        fun enqueue(context: Context, recordingId: String, rangeStartSec: Int? = null, rangeEndSec: Int? = null) {
+        private fun ensureNotEmpty(segments: List<*>) {
+            if (segments.isEmpty()) throw ApiException("Belum ada transkrip untuk disusun menjadi notulensi.")
+        }
+
+        fun enqueue(
+            context: Context, recordingId: String, rangeStartSec: Int? = null, rangeEndSec: Int? = null,
+            mode: ProcessMode = ProcessMode.FULL,
+        ) {
             val request = OneTimeWorkRequestBuilder<ProcessRecordingWorker>()
                 .setInputData(
                     workDataOf(
                         KEY_RECORDING_ID to recordingId,
                         KEY_RANGE_START to (rangeStartSec ?: -1),
                         KEY_RANGE_END to (rangeEndSec ?: -1),
+                        KEY_MODE to mode.name,
                     ),
                 )
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)

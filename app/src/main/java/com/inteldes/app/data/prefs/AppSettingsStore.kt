@@ -32,6 +32,9 @@ data class AppSettings(
      * a finished recording is just saved as-is, and transcription is triggered manually
      * later — avoids spending cloud tokens (or waiting on a connection) on every take. */
     val autoProcessAfterRecording: Boolean = true,
+    /** When processing starts by itself (or the dialog opens), stop after the transcript so it can be corrected
+     * before the notulensi is written from it. Off = the original one-go behaviour. */
+    val transcribeFirst: Boolean = false,
     /** While the record screen is open, volume up/down also drops a mark (like a camera
      * shutter button) — the volume action itself still goes through as normal. Only works
      * while the app is actually open and in the foreground; Android gives apps no way to
@@ -63,6 +66,7 @@ class AppSettingsStore(private val context: Context) {
         val ECONOMY_MODE = booleanPreferencesKey("economy_mode")
         val SPEAKER_ROSTER = stringPreferencesKey("speaker_roster_json")
         val AUTO_PROCESS = booleanPreferencesKey("auto_process_after_recording")
+        val TRANSCRIBE_FIRST = booleanPreferencesKey("transcribe_first")
         val MARK_WITH_VOLUME = booleanPreferencesKey("mark_with_volume_button")
         val DEFAULT_TEMPLATE = stringPreferencesKey("default_template")
         val PREFERRED_MIC = stringPreferencesKey("preferred_mic")
@@ -85,6 +89,7 @@ class AppSettingsStore(private val context: Context) {
             economyMode = p[Keys.ECONOMY_MODE] ?: false,
             speakerRoster = p[Keys.SPEAKER_ROSTER]?.let { runCatching { gson.fromJson<List<String>>(it, stringListType) }.getOrNull() } ?: emptyList(),
             autoProcessAfterRecording = p[Keys.AUTO_PROCESS] ?: true,
+            transcribeFirst = p[Keys.TRANSCRIBE_FIRST] ?: false,
             markWithVolumeButton = p[Keys.MARK_WITH_VOLUME] ?: false,
             defaultTemplateId = p[Keys.DEFAULT_TEMPLATE] ?: BuiltInTemplates.STANDARD_ID,
             preferredMicKey = p[Keys.PREFERRED_MIC] ?: "",
@@ -120,6 +125,10 @@ class AppSettingsStore(private val context: Context) {
 
     suspend fun setAutoProcessAfterRecording(enabled: Boolean) {
         context.dataStore.edit { it[Keys.AUTO_PROCESS] = enabled }
+    }
+
+    suspend fun setTranscribeFirst(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.TRANSCRIBE_FIRST] = enabled }
     }
 
     suspend fun setMarkWithVolumeButton(enabled: Boolean) {

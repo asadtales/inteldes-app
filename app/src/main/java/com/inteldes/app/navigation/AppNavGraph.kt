@@ -37,6 +37,7 @@ fun AppNavGraph(
     app: IntelDesApp,
     navController: NavHostController = rememberNavController(),
     recordShortcutToken: Int = 0,
+    captureShortcutToken: Int = 0,
     pairLink: com.inteldes.app.data.server.PairingLink? = null,
     onPairLinkHandled: () -> Unit = {},
     appLoginUri: String? = null,
@@ -49,6 +50,11 @@ fun AppNavGraph(
     // app is already open still navigates, even though the value stays truthy.
     LaunchedEffect(recordShortcutToken) {
         if (recordShortcutToken > 0) navController.navigate(Routes.Record.route) { launchSingleTop = true }
+    }
+
+    // The "Foto & video" shortcut: straight to field documentation.
+    LaunchedEffect(captureShortcutToken) {
+        if (captureShortcutToken > 0) navController.navigate(Routes.Capture.route) { launchSingleTop = true }
     }
 
     val account = app.accountService
@@ -148,8 +154,17 @@ fun AppNavGraph(
                 onOpenRecording = { id -> navController.navigate(Routes.Detail.of(id)) },
                 onRecord = { navController.navigate(Routes.Record.route) { launchSingleTop = true } },
                 onSettings = { navController.navigate(Routes.Settings.route) },
+                onCapture = { navController.navigate(Routes.Capture.route) { launchSingleTop = true } },
                 onContexts = { navController.navigate(Routes.Contexts.route) },
                 onUploadReady = { id -> navController.navigate(Routes.Processing.of(id)) },
+            )
+        }
+
+        composable(Routes.Capture.route) {
+            com.inteldes.app.ui.screens.capture.CaptureScreen(
+                factory = appFactory,
+                onBack = { navController.popBackStack() },
+                onOpenRecording = { id -> navController.navigate(Routes.Detail.of(id)) { popUpTo(Routes.Home.route) } },
             )
         }
 
@@ -211,13 +226,13 @@ fun AppNavGraph(
                 initialTab = tab,
                 onBack = { navController.popBackStack() },
                 onGoSettings = { navController.navigate(Routes.Settings.route) },
-                onOpenProcessing = { id, fromTab, rangeStartSec, rangeEndSec ->
+                onOpenProcessing = { id, fromTab, rangeStartSec, rangeEndSec, mode ->
                     // "LIHAT PROGRES"/"COBA LAGI" from the Detail screen used to just navigate
                     // here assuming work was already running — true right after a recording is
                     // first created, but not when reopening a previously failed one, where
                     // nothing was actually enqueued. enqueue() uses KEEP, so this is a no-op
                     // when work is genuinely still active and only starts fresh work otherwise.
-                    ProcessRecordingWorker.enqueue(app, id, rangeStartSec, rangeEndSec)
+                    ProcessRecordingWorker.enqueue(app, id, rangeStartSec, rangeEndSec, mode)
                     navController.navigate(Routes.Processing.of(id, fromTab))
                 },
             )

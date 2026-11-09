@@ -22,8 +22,14 @@ data class ProcessingUiState(
     val currentStep: ProcessingStep? = null,
     val error: String? = null,
     val marks: List<RecordingMark> = emptyList(),
+    val transcribeFirst: Boolean = false,
 ) {
-    val isDone: Boolean get() = recording?.status == RecordingStatus.DONE
+    /**
+     * Finished: the notulensi is written, or a transcription-only run ended (work succeeded and the recording is
+     * idle again with no error — it stays RAW on purpose, waiting for the transcript to be edited).
+     */
+    val isDone: Boolean get() = recording?.status == RecordingStatus.DONE ||
+        (currentStep == ProcessingStep.entries.last() && recording?.status == RecordingStatus.RAW && error == null && recording.errorMessage == null)
 }
 
 class ProcessingViewModel(
@@ -37,12 +43,24 @@ class ProcessingViewModel(
         ProcessRecordingWorker.observeStep(appContext, recordingId),
         ProcessRecordingWorker.observeError(appContext, recordingId),
         repository.observeMarks(recordingId),
-    ) { recording, step, error, marks ->
-        ProcessingUiState(recording, step, error, marks)
+        (appContext.applicationContext as com.inteldes.app.IntelDesApp).settingsStore.settings,
+    ) { recording, step, error, marks, settings ->
+        ProcessingUiState(recording, step, error, marks, settings.transcribeFirst)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ProcessingUiState())
 
     fun retry(recordingId: String) {
         ProcessRecordingWorker.enqueue(appContext, recordingId)
+    }
+
+    /** Retries at the same stage the user chose: transcript only, or all the way to the notulensi. */
+    fun retryWithMode(recordingId: String, engine: WhisperEngine, rangeStartSec: Int?, rangeEndSec: Int?, transcribeOnly: Boolean) {
+        viewModelScope.launch {
+            repository.setEngine(recordingId, engine)
+            ProcessRecordingWorker.enqueue(
+                appContext, recordingId, rangeStartSec, rangeEndSec,
+                if (transcribeOnly) com.inteldes.app.data.work.ProcessMode.TRANSCRIBE_ONLY else com.inteldes.app.data.work.ProcessMode.FULL,
+            )
+        }
     }
 
     /** Retry, but with an explicit engine + range choice first — a retry re-spends cloud

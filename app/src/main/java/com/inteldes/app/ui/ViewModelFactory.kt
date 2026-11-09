@@ -20,6 +20,8 @@ class AppViewModelFactory(private val app: IntelDesApp) : ViewModelProvider.Fact
             HomeViewModel(app, app.repository, app.settingsStore, app.audioRecorder, app.templateRepository) as T
         modelClass.isAssignableFrom(RecordViewModel::class.java) ->
             RecordViewModel(app, app.audioRecorder, app.repository, app.settingsStore, app.templateRepository) as T
+        modelClass.isAssignableFrom(com.inteldes.app.ui.screens.capture.CaptureViewModel::class.java) ->
+            com.inteldes.app.ui.screens.capture.CaptureViewModel(app, app.repository, app.settingsStore, app.templateRepository) as T
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
             SettingsViewModel(app, app.settingsStore, app.securePrefs, app.templateRepository, app.syncStore, app.driveAuth, app.accountService, app.webSyncStore, app.repository, app.syncExclusions) as T
         modelClass.isAssignableFrom(com.inteldes.app.ui.screens.account.AccountViewModel::class.java) ->

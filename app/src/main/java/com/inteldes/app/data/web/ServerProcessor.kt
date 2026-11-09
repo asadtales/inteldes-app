@@ -22,6 +22,8 @@ class ServerProcessor(
     private val sleep: suspend (Long) -> Unit = { delay(it) },
     private val pollMs: Long = 5_000,
     private val maxWaitMs: Long = 90 * 60_000L,
+    /** A transcript-only run ends idle (RAW, no error) instead of DONE. */
+    private val endsIdle: Boolean = false,
 ) {
     sealed interface Outcome {
         data object Done : Outcome
@@ -45,7 +47,8 @@ class ServerProcessor(
         }
         progress("Mengambil hasil dari server…")
         syncThisRecording()
-        return if (last.first == "DONE") Outcome.Done
+        val ok = last.first == "DONE" || (endsIdle && last.first == "RAW" && last.second.isNullOrBlank())
+        return if (ok) Outcome.Done
         else Outcome.Failed(last.second?.takeIf { it.isNotBlank() } ?: "Server tidak berhasil memprosesnya.")
     }
 

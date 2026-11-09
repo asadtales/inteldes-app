@@ -208,6 +208,16 @@ class WebApi(
         text(Request.Builder().url("$base/v1/recordings/$id/process").post(gson.toJson(body).toRequestBody(JSON)).build())
     }
 
+    /** Transcribes only (PREP → DIARIZE), leaving the recording RAW with its transcript for editing. */
+    suspend fun transcribeRecording(id: String, body: JsonObject) {
+        text(Request.Builder().url("$base/v1/recordings/$id/transcribe").post(gson.toJson(body).toRequestBody(JSON)).build())
+    }
+
+    /** Writes the notulensi from the transcript stored on the server (after the phone sent its edits). */
+    suspend fun regenerateRecording(id: String, body: JsonObject) {
+        text(Request.Builder().url("$base/v1/recordings/$id/regenerate").post(gson.toJson(body).toRequestBody(JSON)).build())
+    }
+
     override suspend fun deleteRecording(id: String) {
         text(Request.Builder().url("$base/v1/recordings/$id").delete().build())
     }

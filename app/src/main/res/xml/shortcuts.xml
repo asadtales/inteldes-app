@@ -12,4 +12,16 @@
             android:targetClass="com.inteldes.app.MainActivity"
             android:data="inteldes://record" />
     </shortcut>
+    <shortcut
+        android:shortcutId="capture_now"
+        android:enabled="true"
+        android:icon="@drawable/ic_camera"
+        android:shortcutShortLabel="@string/shortcut_capture_short"
+        android:shortcutLongLabel="@string/shortcut_capture_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.inteldes.app"
+            android:targetClass="com.inteldes.app.MainActivity"
+            android:data="inteldes://capture" />
+    </shortcut>
 </shortcuts>

@@ -10,7 +10,7 @@ import org.junit.Test
 class ServerProcessorTest {
     private val log = mutableListOf<String>()
 
-    private fun processor(statuses: List<Pair<String, String?>?>, maxWaitMs: Long = 90 * 60_000L): ServerProcessor {
+    private fun processor(statuses: List<Pair<String, String?>?>, maxWaitMs: Long = 90 * 60_000L, endsIdle: Boolean = false): ServerProcessor {
         var i = 0
         return ServerProcessor(
             syncThisRecording = { log += "sync" },
@@ -20,6 +20,7 @@ class ServerProcessorTest {
             sleep = { log += "wait" },
             pollMs = 1_000,
             maxWaitMs = maxWaitMs,
+            endsIdle = endsIdle,
         )
     }
 
@@ -28,6 +29,24 @@ class ServerProcessorTest {
         val out = runBlocking { processor(listOf("WORKING" to null, "WORKING" to null, "DONE" to null)).run() }
         assertTrue(out is ServerProcessor.Outcome.Done)
         assertEquals(listOf("sync", "start", "status", "wait", "status", "wait", "status", "sync"), log)
+    }
+
+    @Test
+    fun aTranscriptOnlyRunEndsIdleWithoutAnErrorAndThatIsSuccess() {
+        val out = runBlocking { processor(listOf("WORKING" to null, "RAW" to null), endsIdle = true).run() }
+        assertTrue(out is ServerProcessor.Outcome.Done)
+    }
+
+    @Test
+    fun aFullRunThatEndsIdleIsStillNotDone() {
+        val out = runBlocking { processor(listOf("RAW" to null)).run() }
+        assertTrue(out is ServerProcessor.Outcome.Failed)
+    }
+
+    @Test
+    fun aTranscriptOnlyRunWithAnErrorIsAFailure() {
+        val out = runBlocking { processor(listOf("RAW" to "Kunci Deepgram belum diisi"), endsIdle = true).run() }
+        assertTrue(out is ServerProcessor.Outcome.Failed)
     }
 
     @Test

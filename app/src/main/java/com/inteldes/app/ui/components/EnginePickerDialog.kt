@@ -46,11 +46,14 @@ fun TranscribeOptionsDialog(
     durationSec: Int,
     marks: List<RecordingMark>,
     onDismiss: () -> Unit,
-    onConfirm: (WhisperEngine, Int?, Int?) -> Unit,
+    onConfirm: (WhisperEngine, Int?, Int?, Boolean) -> Unit,
+    /** Starting choice of "stop after the transcript" (the user's setting); the dialog lets them change it per run. */
+    defaultTranscribeOnly: Boolean = false,
     /** When given, the dialog also offers processing on the server with the server's keys (see ServerOption). */
     serverOption: com.inteldes.app.data.web.ServerOption? = null,
-    onConfirmServer: () -> Unit = {},
+    onConfirmServer: (Boolean) -> Unit = {},
 ) {
+    var transcribeOnly by remember { mutableStateOf(defaultTranscribeOnly) }
     var onServer by remember { mutableStateOf(serverOption?.available == true && serverOption.preferred) }
     var selectedEngine by remember { mutableStateOf(currentEngine) }
     var partial by remember { mutableStateOf(false) }
@@ -83,6 +86,20 @@ fun TranscribeOptionsDialog(
                     }
                     Spacer(Modifier.height(16.dp))
                 }
+                Text("SETELAH TRANSKRIP", color = IdColor.Neutral600, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.6.sp)
+                Spacer(Modifier.height(6.dp))
+                Row {
+                    RangePickRow("Lanjut notulensi", !transcribeOnly, Modifier.weight(1f)) { transcribeOnly = false }
+                    Spacer(Modifier.width(6.dp))
+                    RangePickRow("Transkrip saja", transcribeOnly, Modifier.weight(1f)) { transcribeOnly = true }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (transcribeOnly) "Berhenti setelah transkrip jadi. Perbaiki nama pembicara dan kata yang keliru, lalu susun notulensi dari transkrip yang sudah benar."
+                    else "Notulensi langsung disusun dari transkrip hasil mesin.",
+                    color = IdColor.Neutral600, fontSize = 10.5.sp, lineHeight = 14.sp,
+                )
+                Spacer(Modifier.height(16.dp))
                 if (onServer) return@Column
                 EnginePickRow("On-device", "Tanpa internet, satu pembicara, gratis.", selectedEngine == WhisperEngine.ON_DEVICE) { selectedEngine = WhisperEngine.ON_DEVICE }
                 Spacer(Modifier.height(8.dp))
@@ -124,8 +141,8 @@ fun TranscribeOptionsDialog(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .clickable(enabled = canConfirm) {
-                        if (onServer) { onConfirmServer(); return@clickable }
-                        onConfirm(selectedEngine, if (partial) range?.first else null, if (partial) range?.second else null)
+                        if (onServer) { onConfirmServer(transcribeOnly); return@clickable }
+                        onConfirm(selectedEngine, if (partial) range?.first else null, if (partial) range?.second else null, transcribeOnly)
                     }
                     .padding(10.dp),
             )

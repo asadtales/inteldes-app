@@ -2,4 +2,6 @@
     <string name="app_name">INTELDES</string>
     <string name="shortcut_record_short">Rekam</string>
     <string name="shortcut_record_long">Rekam rapat sekarang</string>
+    <string name="shortcut_capture_short">Foto &amp; video</string>
+    <string name="shortcut_capture_long">Ambil foto atau video dengan lokasi</string>
 </resources>

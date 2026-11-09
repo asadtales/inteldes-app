@@ -279,6 +279,7 @@ class SettingsViewModel(
     fun setOutputLanguage(language: OutputLanguage) { viewModelScope.launch { store.setOutputLanguage(language) } }
     fun setEconomyMode(enabled: Boolean) { viewModelScope.launch { store.setEconomyMode(enabled) } }
     fun setAutoProcessAfterRecording(enabled: Boolean) { viewModelScope.launch { store.setAutoProcessAfterRecording(enabled) } }
+    fun setTranscribeFirst(enabled: Boolean) { viewModelScope.launch { store.setTranscribeFirst(enabled) } }
     fun setMarkWithVolumeButton(enabled: Boolean) { viewModelScope.launch { store.setMarkWithVolumeButton(enabled) } }
     // ───────────────────────── photo geotag and logo ─────────────────────────
 

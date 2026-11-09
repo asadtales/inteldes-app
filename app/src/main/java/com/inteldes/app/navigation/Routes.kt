@@ -14,6 +14,7 @@ sealed class Routes(val route: String) {
     data object Detail : Routes("detail/{recordingId}?tab={tab}") {
         fun of(id: String, tab: String = "script") = "detail/$id?tab=$tab"
     }
+    data object Capture : Routes("capture")
     data object Settings : Routes("settings")
     data object Templates : Routes("templates")
     data object Contexts : Routes("contexts")

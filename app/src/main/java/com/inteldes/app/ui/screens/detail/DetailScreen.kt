@@ -78,7 +78,7 @@ fun DetailScreen(
     initialTab: String,
     onBack: () -> Unit,
     onGoSettings: () -> Unit,
-    onOpenProcessing: (String, String, Int?, Int?) -> Unit,
+    onOpenProcessing: (String, String, Int?, Int?, com.inteldes.app.data.work.ProcessMode) -> Unit,
 ) {
     val vm: DetailViewModel = viewModel(factory = factory)
     val state by vm.uiState.collectAsStateWithLifecycle()
@@ -150,6 +150,10 @@ fun DetailScreen(
                 context.startActivity(NotulensiExporter.shareIntent(uri, rec.audioMimeType, "Bagikan rekaman audio"))
             }
         }
+        val onWriteNotesAction: (Boolean, String) -> Unit = { onServer, id ->
+            if (onServer) vm.startServerNotes()
+            else onOpenProcessing(id, "notes", null, null, com.inteldes.app.data.work.ProcessMode.NOTES_ONLY)
+        }
         val actions = PlayerActions(
             marks = state.marks,
             onShare = onShareAudio,
@@ -177,6 +181,15 @@ fun DetailScreen(
                 onEditText = vm::editTranscriptText,
                 actions = actions,
                 modifier = Modifier.weight(1f),
+                footer = if (recording.status == RecordingStatus.DONE) null else ({
+                    WriteNotesBar(
+                        working = recording.status == RecordingStatus.WORKING,
+                        serverJob = serverJob,
+                        error = recording.errorMessage,
+                        serverOption = vm.serverOption(recording.audioFilePath != null),
+                        onWrite = { onServer -> onWriteNotesAction(onServer, recording.id) },
+                    )
+                }),
             )
             recording.status != RecordingStatus.DONE -> NotDoneState(
                 statusIsWorking = recording.status == RecordingStatus.WORKING,
@@ -198,10 +211,13 @@ fun DetailScreen(
                 playback = playback,
                 onTogglePlay = vm::togglePlayback,
                 onSeek = onSeek,
-                onOpenProcessing = { onOpenProcessing(recording.id, state.tab.routeName, null, null) },
-                onStartProcessing = { engine, start, end ->
-                    vm.startProcessing(engine, start, end) { id, tab, s, e -> onOpenProcessing(id, tab, s, e) }
+                onOpenProcessing = { onOpenProcessing(recording.id, state.tab.routeName, null, null, com.inteldes.app.data.work.ProcessMode.FULL) },
+                transcribeFirst = state.transcribeFirst,
+                hasTranscript = state.transcript.isNotEmpty(),
+                onStartProcessing = { engine, start, end, transcribeOnly ->
+                    vm.startProcessing(engine, start, end) { id, tab, s, e -> onOpenProcessing(id, if (transcribeOnly) "script" else tab, s, e, if (transcribeOnly) com.inteldes.app.data.work.ProcessMode.TRANSCRIBE_ONLY else com.inteldes.app.data.work.ProcessMode.FULL) }
                 },
+                onWriteNotes = onWriteNotesAction,
                 serverJob = serverJob,
                 serverOptionOf = { vm.serverOption(recording.audioFilePath != null) },
                 onStartServer = vm::startServerProcessing,
@@ -292,7 +308,7 @@ fun DetailScreen(
                 onSaved = { newId, processNow ->
                     showTrim = false
                     if (processNow) {
-                        onOpenProcessing(newId, "script", null, null)
+                        onOpenProcessing(newId, "script", null, null, com.inteldes.app.data.work.ProcessMode.FULL)
                     } else {
                         android.widget.Toast.makeText(localContext, "Disimpan sebagai rekaman baru. Rekaman asli tidak berubah.", android.widget.Toast.LENGTH_LONG).show()
                     }
@@ -639,10 +655,13 @@ private fun NotDoneState(
     onTogglePlay: () -> Unit,
     onSeek: (Int) -> Unit,
     onOpenProcessing: () -> Unit,
-    onStartProcessing: (WhisperEngine, Int?, Int?) -> Unit,
+    transcribeFirst: Boolean,
+    hasTranscript: Boolean,
+    onStartProcessing: (WhisperEngine, Int?, Int?, Boolean) -> Unit,
+    onWriteNotes: (Boolean, String) -> Unit,
     serverJob: com.inteldes.app.data.web.ServerJob?,
     serverOptionOf: () -> com.inteldes.app.data.web.ServerOption,
-    onStartServer: () -> Unit,
+    onStartServer: (Boolean) -> Unit,
     actions: PlayerActions,
 ) {
     var showEnginePicker by remember { mutableStateOf(false) }
@@ -678,7 +697,7 @@ private fun NotDoneState(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    shownError ?: serverJob?.message ?: "Transkrip dan notulensi akan muncul di sini setelah selesai. Tandai poin penting atau potong audio dulu kalau perlu.",
+                    shownError ?: serverJob?.message ?: if (!hasAudio && !hasTranscript) "Dokumentasi foto dan video. Tambahkan foto atau video di bawah; semuanya dikirim ke web lewat sinkron." else "Transkrip dan notulensi akan muncul di sini setelah selesai. Tandai poin penting atau potong audio dulu kalau perlu.",
                     color = IdColor.Neutral700,
                     fontSize = 12.5.sp,
                     lineHeight = 18.sp,
@@ -697,7 +716,8 @@ private fun NotDoneState(
             PhotoDocumentation(photos, onAddPhoto, onUpdateCaption, onDeletePhoto)
             com.inteldes.app.ui.components.VideoDocumentation(videos, onAddVideo, onVideoCaption, onDeleteVideo)
         }
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp)) {
+        // Photos/videos only (no audio, no transcript): there is nothing to process.
+        if (hasAudio || hasTranscript) Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp)) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -712,7 +732,7 @@ private fun NotDoneState(
                         onClick = when {
                             statusIsWorking -> onOpenProcessing
                             // An imported conversation has no audio: nothing to transcribe, so no engine to choose.
-                            !hasAudio -> { { onStartProcessing(currentEngine, null, null) } }
+                            !hasAudio -> { { onStartProcessing(currentEngine, null, null, false) } }
                             else -> { { showEnginePicker = true } }
                         },
                     )
@@ -740,14 +760,15 @@ private fun NotDoneState(
             durationSec = durationSec,
             marks = marks,
             onDismiss = { showEnginePicker = false },
-            onConfirm = { engine, start, end ->
+            defaultTranscribeOnly = transcribeFirst,
+            onConfirm = { engine, start, end, transcribeOnly ->
                 showEnginePicker = false
-                onStartProcessing(engine, start, end)
+                onStartProcessing(engine, start, end, transcribeOnly)
             },
             serverOption = serverOptionOf(),
-            onConfirmServer = {
+            onConfirmServer = { transcribeOnly ->
                 showEnginePicker = false
-                onStartServer()
+                onStartServer(transcribeOnly)
             },
         )
     }
@@ -766,6 +787,7 @@ private fun ScriptTab(
     onEditText: (Int, String) -> Unit,
     actions: PlayerActions,
     modifier: Modifier = Modifier,
+    footer: (@Composable () -> Unit)? = null,
 ) {
     var editIndex by remember { mutableStateOf<Int?>(null) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -860,6 +882,7 @@ private fun ScriptTab(
                 )
             }
         }
+        footer?.invoke()
     }
 
     editIndex?.let { i ->
@@ -874,7 +897,7 @@ private fun ScriptTab(
                 onSave = { newText, newSpeaker ->
                     if (newText.trim() != seg.text) {
                         onEditText(i, newText)
-                        android.widget.Toast.makeText(context, "Tersimpan. Tekan SUSUN ULANG di tab Notulensi agar ringkasan memakai teks baru.", android.widget.Toast.LENGTH_LONG).show()
+                        android.widget.Toast.makeText(context, "Tersimpan. Notulensi disusun dari teks ini saat Anda menekan SUSUN NOTULENSI / SUSUN ULANG.", android.widget.Toast.LENGTH_LONG).show()
                     }
                     if (newSpeaker.isNotBlank() && newSpeaker != seg.speaker) onRenameSpeaker(seg.speaker, newSpeaker)
                     editIndex = null
@@ -1143,4 +1166,47 @@ private fun markChipText(m: com.inteldes.app.data.model.RecordingMark): String {
     val time = com.inteldes.app.ui.util.formatMmSs(m.timestampSec)
     val named = m.label.isNotBlank() && !m.label.startsWith("Penanda")
     return if (named) "$time · ${m.label.take(20)}" else time
+}
+
+
+/**
+ * Under a transcript whose notulensi is not written yet: write it from the transcript as it is now (corrected
+ * or not). The audio is not processed again. Offers the server when it can do it.
+ */
+@Composable
+private fun WriteNotesBar(
+    working: Boolean,
+    serverJob: com.inteldes.app.data.web.ServerJob?,
+    error: String?,
+    serverOption: com.inteldes.app.data.web.ServerOption,
+    onWrite: (Boolean) -> Unit,
+) {
+    var choose by remember { mutableStateOf(false) }
+    val serverRunning = serverJob?.running == true
+    val busy = working || serverRunning
+    val shownError = if (serverJob != null && !serverJob.running) serverJob.message else error
+    Column(modifier = Modifier.fillMaxWidth().background(IdColor.Neutral100).padding(horizontal = 18.dp, vertical = 12.dp)) {
+        Text(
+            shownError ?: serverJob?.message ?: if (busy) "Sedang diproses…" else "Transkrip sudah siap. Perbaiki dulu bila perlu, lalu susun notulensinya.",
+            color = if (shownError != null) IdColor.Accent else IdColor.Neutral700, fontSize = 12.sp, lineHeight = 16.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxWidth().background(if (busy) IdColor.Neutral400 else IdColor.Accent)
+                .clickable(enabled = !busy) { if (serverOption.available) choose = true else onWrite(false) }
+                .padding(vertical = 14.dp),
+        ) {
+            Text(if (busy) "MENUNGGU…" else "SUSUN NOTULENSI", color = IdColor.White, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, letterSpacing = 0.6.sp)
+        }
+    }
+    if (choose) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { choose = false },
+            title = { Text("Susun notulensi di mana?", fontWeight = FontWeight.Bold) },
+            text = { Text("Memakai transkrip yang sudah Anda perbaiki. Audio tidak diproses ulang.", fontSize = 13.sp) },
+            confirmButton = { Text("SERVER", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { choose = false; onWrite(true) }.padding(10.dp)) },
+            dismissButton = { Text("HP INI", color = IdColor.Text, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { choose = false; onWrite(false) }.padding(10.dp)) },
+        )
+    }
 }

@@ -20,12 +20,14 @@ import com.inteldes.app.ui.theme.IdColor
 import com.inteldes.app.ui.theme.IntelDesTheme
 
 private const val RECORD_SHORTCUT_URI = "inteldes://record"
+private const val CAPTURE_SHORTCUT_URI = "inteldes://capture"
 
 class MainActivity : FragmentActivity() {
     // A counter, not a boolean: onNewIntent can deliver the same shortcut intent again
     // while the app is already open (singleTop), and a plain boolean staying "true"
     // wouldn't re-trigger navigation the second time. Incrementing always does.
     private val recordShortcutToken = mutableIntStateOf(0)
+    private val captureShortcutToken = mutableIntStateOf(0)
 
     // A QR opened through an App Link (the camera app, a message). Parsed with the SAME checks as an in-app scan.
     private val pairLink = androidx.compose.runtime.mutableStateOf<com.inteldes.app.data.server.PairingLink?>(null)
@@ -36,6 +38,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (isRecordShortcutIntent(intent)) recordShortcutToken.intValue++
+        if (isCaptureShortcutIntent(intent)) captureShortcutToken.intValue++
         pairLink.value = pairLinkFrom(intent)
         appLoginUri.value = appLoginUriFrom(intent)
         setContent {
@@ -45,6 +48,7 @@ class MainActivity : FragmentActivity() {
                     AppNavGraph(
                         app = application as IntelDesApp,
                         recordShortcutToken = recordShortcutToken.intValue,
+                        captureShortcutToken = captureShortcutToken.intValue,
                         pairLink = pairLink.value,
                         onPairLinkHandled = { pairLink.value = null },
                         appLoginUri = appLoginUri.value,
@@ -59,6 +63,7 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (isRecordShortcutIntent(intent)) recordShortcutToken.intValue++
+        if (isCaptureShortcutIntent(intent)) captureShortcutToken.intValue++
         pairLinkFrom(intent)?.let { pairLink.value = it }
         appLoginUriFrom(intent)?.let { appLoginUri.value = it }
     }
@@ -74,6 +79,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun isRecordShortcutIntent(intent: Intent?) = intent?.data?.toString() == RECORD_SHORTCUT_URI
+    private fun isCaptureShortcutIntent(intent: Intent?) = intent?.data?.toString() == CAPTURE_SHORTCUT_URI
 
     // Volume-button-as-mark-shortcut, opt-in via Pengaturan — only reachable while the app
     // is actually open (RecordScreen registers the callback while composed); this doesn't

@@ -153,6 +153,11 @@ fun SettingsScreen(
                     if (s.autoProcessAfterRecording) "Aktif" else "Nonaktif",
                 ) { vm.setAutoProcessAfterRecording(!s.autoProcessAfterRecording) }
                 SettingRow(
+                    "Transkrip dulu, notulensi menyusul",
+                    "Aktif: pemrosesan berhenti setelah transkrip jadi. Perbaiki nama pembicara dan kata yang keliru di tab Transkrip, lalu tekan SUSUN NOTULENSI. Nonaktif: transkrip dan notulensi sekaligus.",
+                    if (s.transcribeFirst) "Aktif" else "Nonaktif",
+                ) { vm.setTranscribeFirst(!s.transcribeFirst) }
+                SettingRow(
                     "Tandai dengan tombol volume",
                     "Saat layar rekam terbuka, tekan tombol volume juga menandai momen saat itu (seperti tombol rana kamera) — volume tetap berubah seperti biasa. Tidak berfungsi saat layar mati; gunakan tombol TANDAI di notifikasi untuk itu.",
                     if (s.markWithVolumeButton) "Aktif" else "Nonaktif",

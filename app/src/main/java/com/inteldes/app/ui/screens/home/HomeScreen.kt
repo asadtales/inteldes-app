@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -71,6 +72,7 @@ fun HomeScreen(
     onOpenRecording: (String) -> Unit,
     onRecord: () -> Unit,
     onSettings: () -> Unit,
+    onCapture: () -> Unit,
     onContexts: () -> Unit,
     onUploadReady: (String) -> Unit,
 ) {
@@ -119,6 +121,9 @@ fun HomeScreen(
                     Text("INTELDES", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, letterSpacing = 1.sp)
                 }
                 Spacer(Modifier.weight(1f))
+                IconButton(onClick = onCapture) {
+                    Icon(Icons.Filled.PhotoCamera, contentDescription = "Foto dan video", tint = IdColor.Text)
+                }
                 IconButton(onClick = onContexts) {
                     Icon(Icons.Filled.Bookmarks, contentDescription = "Konteks", tint = IdColor.Text)
                 }

@@ -118,9 +118,10 @@ fun ProcessingScreen(
                     durationSec = state.recording?.durationSec ?: 0,
                     marks = state.marks,
                     onDismiss = { showEnginePicker = false },
-                    onConfirm = { engine, start, end ->
+                    defaultTranscribeOnly = state.transcribeFirst,
+                    onConfirm = { engine, start, end, transcribeOnly ->
                         showEnginePicker = false
-                        vm.retryWithOptions(recordingId, engine, start, end)
+                        vm.retryWithMode(recordingId, engine, start, end, transcribeOnly)
                     },
                 )
             }

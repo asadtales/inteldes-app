@@ -34,6 +34,8 @@ import java.io.File
 /** A photo taken during the recording; [offsetSec] is how far into the audio it was added. */
 data class PendingPhoto(val file: File, val offsetSec: Int, val geo: com.inteldes.app.data.photo.GeoFix? = null)
 
+private data class PendingPhotoRecord(val path: String, val offsetSec: Int, val geo: com.inteldes.app.data.photo.GeoFix?)
+
 private data class PhotoState(val photos: List<PendingPhoto> = emptyList(), val error: String? = null)
 
 data class RecordUiState(
@@ -68,6 +70,7 @@ class RecordViewModel(
 
     private val engine = MutableStateFlow(WhisperEngine.CLOUD)
     private val autoProcess = MutableStateFlow(true)
+    private val transcribeFirst = MutableStateFlow(false)
     private val markWithVolumeButton = MutableStateFlow(false)
     private val photoState = MutableStateFlow(PhotoState())
     private val detectedLocation = MutableStateFlow<LocationInfo?>(null)
@@ -79,11 +82,37 @@ class RecordViewModel(
     val categories: StateFlow<List<String>> = repository.observeCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * Photos taken during a recording are written to disk the moment they are taken, so they survive the camera app
+     * pushing this one out of memory (the recording itself keeps running in its service). They are put back here.
+     */
+    private val pendingFile = File(appContext.filesDir, "pending_record_photos.json")
+    private val gson = com.google.gson.Gson()
+
+    private fun persistPending(photos: List<PendingPhoto>) {
+        runCatching {
+            if (photos.isEmpty()) pendingFile.delete()
+            else pendingFile.writeText(gson.toJson(photos.map { PendingPhotoRecord(it.file.absolutePath, it.offsetSec, it.geo) }))
+        }
+    }
+
+    private fun restorePending() {
+        if (recorder.state.value == RecorderState.IDLE) { pendingFile.delete(); return }
+        runCatching {
+            if (!pendingFile.exists()) return
+            val records = gson.fromJson(pendingFile.readText(), Array<PendingPhotoRecord>::class.java).orEmpty()
+            val photos = records.map { PendingPhoto(File(it.path), it.offsetSec, it.geo) }.filter { it.file.exists() }
+            if (photos.isNotEmpty() && photoState.value.photos.isEmpty()) photoState.value = PhotoState(photos, null)
+        }
+    }
+
     init {
+        restorePending()
         viewModelScope.launch {
             settingsStore.settings.collect {
                 engine.value = it.defaultEngine
                 autoProcess.value = it.autoProcessAfterRecording
+                transcribeFirst.value = it.transcribeFirst
                 markWithVolumeButton.value = it.markWithVolumeButton
                 selectedMicKey.value = it.preferredMicKey
             }
@@ -170,6 +199,7 @@ class RecordViewModel(
                 val file = PhotoStorage.import(appContext, uri)
                 val geo = com.inteldes.app.data.photo.PhotoGeo.process(appContext, file, settingsStore.settings.first(), titleLine = null)
                 photoState.value = PhotoState(photoState.value.photos + PendingPhoto(file, offset, geo), null)
+                persistPending(photoState.value.photos)
             } catch (e: Exception) {
                 photoState.value = photoState.value.copy(error = e.message ?: "Gagal menambahkan foto.")
             } finally {
@@ -181,6 +211,7 @@ class RecordViewModel(
     fun removePhoto(photo: PendingPhoto) {
         photo.file.delete()
         photoState.value = PhotoState(photoState.value.photos - photo, null)
+        persistPending(photoState.value.photos)
     }
 
     fun stopAndProcess(title: String, kind: String, template: NoteTemplate, location: LocationInfo?) {
@@ -190,6 +221,7 @@ class RecordViewModel(
         val shouldAutoProcess = autoProcess.value
         val photos = photoState.value.photos
         photoState.value = PhotoState()
+        persistPending(emptyList())
         viewModelScope.launch {
             val id = repository.createRecording(
                 title = title, kind = kind, durationSec = duration,
@@ -197,7 +229,7 @@ class RecordViewModel(
             )
             repository.addMarks(id, pendingMarks)
             photos.forEach { repository.addPhoto(id, it.file, it.offsetSec, it.geo) }
-            if (shouldAutoProcess) ProcessRecordingWorker.enqueue(appContext, id) else SyncWorker.enqueue(appContext)
+            if (shouldAutoProcess) ProcessRecordingWorker.enqueue(appContext, id, mode = if (transcribeFirst.value) com.inteldes.app.data.work.ProcessMode.TRANSCRIBE_ONLY else com.inteldes.app.data.work.ProcessMode.FULL) else SyncWorker.enqueue(appContext)
             doneChannel.send(RecordingReady(id, shouldAutoProcess))
         }
     }
@@ -207,6 +239,7 @@ class RecordViewModel(
         RecordingService.stop(appContext)
         photoState.value.photos.forEach { it.file.delete() }
         photoState.value = PhotoState()
+        persistPending(emptyList())
     }
 }
 

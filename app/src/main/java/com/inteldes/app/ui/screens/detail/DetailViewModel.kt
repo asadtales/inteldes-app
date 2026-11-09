@@ -60,6 +60,7 @@ data class DetailUiState(
     val speakerRoster: List<String> = emptyList(),
     val notulensiHistory: List<com.inteldes.app.data.model.NotulensiHistoryEntry> = emptyList(),
     val marks: List<com.inteldes.app.data.model.RecordingMark> = emptyList(),
+    val transcribeFirst: Boolean = false,
     /** Saved knowledge contexts, and the one (if any) attached to Tanya AI questions on this recording. */
     val contexts: List<KnowledgeContext> = emptyList(),
     val attachedContextId: String? = null,
@@ -232,12 +233,21 @@ class DetailViewModel(
     }
 
     /** Hands the recording to the server (its keys, its quota). The result comes back by itself when it is done. */
-    fun startServerProcessing() {
+    fun startServerProcessing(transcribeOnly: Boolean = false) {
         app.serverJobs.running(recordingId, "Menyiapkan…")
         viewModelScope.launch {
             repository.setEngine(recordingId, com.inteldes.app.data.model.WhisperEngine.CLOUD)       // the server transcribes CLOUD recordings with its own key
-            com.inteldes.app.data.work.ServerProcessWorker.enqueue(appContext, recordingId)
+            com.inteldes.app.data.work.ServerProcessWorker.enqueue(
+                appContext, recordingId,
+                if (transcribeOnly) com.inteldes.app.data.work.ProcessMode.TRANSCRIBE_ONLY else com.inteldes.app.data.work.ProcessMode.FULL,
+            )
         }
+    }
+
+    /** Writes the notulensi on the server from the transcript the user corrected (the audio is not processed again). */
+    fun startServerNotes() {
+        app.serverJobs.running(recordingId, "Menyiapkan…")
+        com.inteldes.app.data.work.ServerProcessWorker.enqueue(appContext, recordingId, com.inteldes.app.data.work.ProcessMode.NOTES_ONLY)
     }
 
     fun togglePlayback() = player.togglePlay()
@@ -422,7 +432,7 @@ class DetailViewModel(
             photos = data.photos, templates = templates,
             tab = flags.tab, thinking = flags.thinking, regenerating = flags.regenerating, error = flags.error,
             speakerRoster = settings.speakerRoster, notulensiHistory = data.history, marks = marks,
-            contexts = contexts, attachedContextId = attached,
+            contexts = contexts, attachedContextId = attached, transcribeFirst = settings.transcribeFirst,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DetailUiState())
 

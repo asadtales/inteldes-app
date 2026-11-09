@@ -71,4 +71,4 @@ Yang dicek di sisi web: rapat itu ada di arsip akun yang sama; `GET /v1/recordin
 
 ## 7. Versi dan cara memeriksa app
 
-App 2.5.2 (build 6); layar Pengaturan > Tentang menampilkan versi, waktu build (WIB), dan "Kunci AI: tidak ada di dalam aplikasi". Migrasi database terbaru: v11 (`videos`), dengan `MigrationTest` 7 sampai 11 lolos di HP.
+App 2.6.0 (build 8: kirim ulang setelah server terhapus; transkrip saja lalu susun notulensi lewat `/transcribe` dan `/regenerate`; menu Dokumentasi lapangan: foto/video + geotag tanpa audio, rekaman `kind` = "Dokumentasi", tanpa audio); layar Pengaturan > Tentang menampilkan versi, waktu build (WIB), dan "Kunci AI: tidak ada di dalam aplikasi". Migrasi database terbaru: v11 (`videos`), dengan `MigrationTest` 7 sampai 11 lolos di HP.

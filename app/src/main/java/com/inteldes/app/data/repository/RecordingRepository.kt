@@ -181,6 +181,11 @@ class RecordingRepository(private val db: IntelDesDatabase) {
         db.recordingDao().getOne(id)?.let { db.recordingDao().update(it.copy(status = RecordingStatus.RAW, errorMessage = message)) }
     }
 
+    /** A transcription-only run finished: the recording is idle again (RAW, no error) and its transcript is stored. */
+    suspend fun markTranscribed(id: String) {
+        db.recordingDao().getOne(id)?.let { db.recordingDao().update(it.copy(status = RecordingStatus.RAW, errorMessage = null)) }
+    }
+
     suspend fun saveTranscript(id: String, speakerCount: Int, segments: List<TranscriptSegment>) {
         db.transcriptDao().clear(id)
         db.transcriptDao().insertSegments(

@@ -34,6 +34,7 @@ class ServerProcessWorker(appContext: Context, params: WorkerParameters) : Corou
     override suspend fun doWork(): Result {
         val app = applicationContext as IntelDesApp
         val id = inputData.getString(KEY_ID) ?: return Result.failure()
+        val mode = ProcessMode.entries.firstOrNull { it.name == inputData.getString(KEY_MODE) } ?: ProcessMode.FULL
         val jobs = app.serverJobs
         val store = app.webSyncStore
         val account = app.accountService
@@ -54,9 +55,11 @@ class ServerProcessWorker(appContext: Context, params: WorkerParameters) : Corou
             val settings = app.settingsStore.settings.first()
             val rec = app.repository.getRecording(id) ?: return fail(id, "Rekaman tidak ditemukan.")
             // Refuse early, before the audio travels, when the package clearly has no room (the server still has the last word).
-            ServerProcessor.quotaBlock(runCatching { api.settings() }.getOrNull()?.aiAccess, rec.durationSec) { at ->
-                com.inteldes.app.ui.util.Wib.format("d MMM yyyy, HH:mm", at) + " WIB"
-            }?.let { return fail(id, it) }
+            if (mode != ProcessMode.NOTES_ONLY) {   // writing notes from a stored transcript uses no audio minutes
+                ServerProcessor.quotaBlock(runCatching { api.settings() }.getOrNull()?.aiAccess, rec.durationSec) { at ->
+                    com.inteldes.app.ui.util.Wib.format("d MMM yyyy, HH:mm", at) + " WIB"
+                }?.let { return fail(id, it) }
+            }
             // Custom templates must exist on the server before they can be named in the request.
             runCatching { WebLibrarySync(RoomWebLibrary(app.database), api, state = store.library).run() }
             val body = JsonObject().apply {
@@ -68,9 +71,16 @@ class ServerProcessWorker(appContext: Context, params: WorkerParameters) : Corou
             }
             val processor = ServerProcessor(
                 syncThisRecording = { WebSyncWorker.mutex.withLock { engine.run() } },
-                start = { api.processRecording(id, body) },
+                start = {
+                    when (mode) {
+                        ProcessMode.FULL -> api.processRecording(id, body)
+                        ProcessMode.TRANSCRIBE_ONLY -> api.transcribeRecording(id, body)
+                        ProcessMode.NOTES_ONLY -> api.regenerateRecording(id, body)
+                    }
+                },
                 status = { api.getAggregate(id)?.recording?.let { it.status to it.errorMessage } },
                 progress = { jobs.running(id, it) },
+                endsIdle = mode == ProcessMode.TRANSCRIBE_ONLY,
             )
             return when (val outcome = processor.run()) {
                 ServerProcessor.Outcome.Done -> { jobs.finish(id); Result.success() }
@@ -98,10 +108,11 @@ class ServerProcessWorker(appContext: Context, params: WorkerParameters) : Corou
 
     companion object {
         private const val KEY_ID = "id"
+        private const val KEY_MODE = "mode"
 
-        fun enqueue(context: Context, recordingId: String) {
+        fun enqueue(context: Context, recordingId: String, mode: ProcessMode = ProcessMode.FULL) {
             val request = OneTimeWorkRequestBuilder<ServerProcessWorker>()
-                .setInputData(Data.Builder().putString(KEY_ID, recordingId).build())
+                .setInputData(Data.Builder().putString(KEY_ID, recordingId).putString(KEY_MODE, mode.name).build())
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork("server_process_$recordingId", ExistingWorkPolicy.KEEP, request)

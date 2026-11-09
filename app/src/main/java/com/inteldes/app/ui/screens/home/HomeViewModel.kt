@@ -174,7 +174,11 @@ class HomeViewModel(
                 title = title, kind = kind, durationSec = audio.durationSec,
                 audioFilePath = audio.file.absolutePath, audioMimeType = audio.mimeType, engine = engine, template = template, location = location,
             )
-            ProcessRecordingWorker.enqueue(appContext, id)
+            val transcribeFirst = (appContext.applicationContext as com.inteldes.app.IntelDesApp).settingsStore.settings.first().transcribeFirst
+            ProcessRecordingWorker.enqueue(
+                appContext, id,
+                mode = if (transcribeFirst) com.inteldes.app.data.work.ProcessMode.TRANSCRIBE_ONLY else com.inteldes.app.data.work.ProcessMode.FULL,
+            )
             uploadReadyChannel.send(id)
         }
     }
