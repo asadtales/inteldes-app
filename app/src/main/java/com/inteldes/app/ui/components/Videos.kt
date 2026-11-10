@@ -160,7 +160,7 @@ fun VideoDocumentation(
                     Text(
                         "BAGIKAN", color = IdColor.Text, fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable {
-                            com.inteldes.app.data.export.MediaShare.intent(context, File(v.filePath), v.mime, caption, v.latitude, v.longitude, v.placeName)
+                            com.inteldes.app.data.export.MediaShare.intent(context, File(v.filePath), "video/*", caption, v.latitude, v.longitude, v.placeName)
                                 ?.let { runCatching { context.startActivity(it) } }
                         }.padding(10.dp),
                     )
