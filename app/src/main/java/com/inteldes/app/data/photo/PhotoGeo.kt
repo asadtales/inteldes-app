@@ -94,7 +94,9 @@ object PhotoLogo {
         val size = resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
         if (size > MAX_SOURCE_BYTES) throw IOException("Logo terlalu besar (maksimal 1 MB).")
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: throw IOException("Logo tidak bisa dibaca.")
+        // decodeStream returns null when it only reads the bounds, so the stream (not the result) says whether it was readable.
+        val boundsStream = resolver.openInputStream(uri) ?: throw IOException("Logo tidak bisa dibaca.")
+        boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw IOException("Berkas yang dipilih bukan gambar.")
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE) sample *= 2

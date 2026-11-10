@@ -488,6 +488,14 @@ internal fun PhotoViewerDialog(
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("HAPUS", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.clickable(onClick = onDelete).padding(8.dp))
+                Text(
+                    "BAGIKAN", color = IdColor.Text, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                    modifier = Modifier.clickable {
+                        com.inteldes.app.data.export.MediaShare.intent(context, java.io.File(photo.filePath), "image/jpeg", caption, photo.latitude, photo.longitude, photo.placeName)
+                            ?.let { runCatching { context.startActivity(it) } }
+                            ?: android.widget.Toast.makeText(context, "Berkas foto tidak ditemukan.", android.widget.Toast.LENGTH_SHORT).show()
+                    }.padding(8.dp),
+                )
                 Spacer(Modifier.weight(1f))
                 Text("TUTUP", color = IdColor.Neutral700, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.clickable(onClick = onDismiss).padding(8.dp))
                 Text("SIMPAN", color = IdColor.Accent, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.clickable { onSaveCaption(caption) }.padding(8.dp))

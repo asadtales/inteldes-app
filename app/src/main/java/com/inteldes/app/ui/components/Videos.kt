@@ -157,6 +157,13 @@ fun VideoDocumentation(
             dismissButton = {
                 Row {
                     Text("HAPUS", color = IdColor.Accent, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onDelete(v); open = null }.padding(10.dp))
+                    Text(
+                        "BAGIKAN", color = IdColor.Text, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable {
+                            com.inteldes.app.data.export.MediaShare.intent(context, File(v.filePath), v.mime, caption, v.latitude, v.longitude, v.placeName)
+                                ?.let { runCatching { context.startActivity(it) } }
+                        }.padding(10.dp),
+                    )
                     Text("Tutup", color = IdColor.Neutral700, modifier = Modifier.clickable { open = null }.padding(10.dp))
                 }
             },
